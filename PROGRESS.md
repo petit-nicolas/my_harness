@@ -113,7 +113,7 @@
 - [ ] 9.2 REPL 命令扩展 — /clear、/cost、/help
 - [ ] 9.3 Ctrl+C 双级处理 + Token 展示 — signal 捕获 + 费用统计
 
-**封版标记**：已封版 (tag: step-0)
+**封版标记**：未封版
 
 ---
 
@@ -123,7 +123,7 @@
 - [ ] 10.2 记忆分类与检索 — user/feedback/project/reference 四类
 - [ ] 10.3 /remember 命令 + 自动记忆 — 主动记录 + 对话后提取
 
-**封版标记**：已封版 (tag: step-0)
+**封版标记**：未封版
 
 ---
 
