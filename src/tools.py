@@ -7,6 +7,8 @@
 
 工具执行统一通过 run_tool() 分发，返回字符串结果。
 """
+import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -102,6 +104,126 @@ def _edit_file(path: str, old_string: str, new_string: str) -> str:
     return "已替换 " + path + "（1 处）"
 
 
+_GREP_MAX_RESULTS = 100   # 单次搜索最多返回的匹配行数
+_LIST_MAX_RESULTS = 200   # 单次列目录最多返回的文件数
+
+# 列目录时忽略的目录/文件模式（精确目录名）
+_LIST_EXCLUDES = {
+    ".git", ".venv", "venv", "__pycache__", "node_modules",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
+    ".cursor",
+}
+
+
+def _grep_search(
+    pattern: str,
+    path: str = ".",
+    case_sensitive: bool = True,
+    include: str = "",
+) -> str:
+    """
+    在指定目录或文件中搜索正则表达式匹配的行。
+
+    优先使用 rg（ripgrep），不存在时回退到 Python re 逐行扫描。
+    返回格式：filename:line_number:line_content，每行一条。
+    """
+    search_path = Path(path)
+    if not search_path.exists():
+        return "错误：路径不存在 → " + path
+
+    # ── 尝试 rg ──────────────────────────────────────────────
+    if shutil.which("rg"):
+        cmd = ["rg", "--line-number", "--no-heading", "--color=never"]
+        if not case_sensitive:
+            cmd.append("--ignore-case")
+        if include:
+            cmd += ["--glob", include]
+        cmd += [pattern, str(search_path)]
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=15
+            )
+            lines = result.stdout.splitlines()[:_GREP_MAX_RESULTS]
+            if not lines:
+                return "（未找到匹配）"
+            suffix = ""
+            if len(result.stdout.splitlines()) > _GREP_MAX_RESULTS:
+                suffix = "\n[结果已截断，仅显示前 " + str(_GREP_MAX_RESULTS) + " 条]"
+            return "\n".join(lines) + suffix
+        except subprocess.TimeoutExpired:
+            pass  # 超时则回退 Python 实现
+
+    # ── Python re 回退实现 ────────────────────────────────────
+    try:
+        flags = 0 if case_sensitive else re.IGNORECASE
+        compiled = re.compile(pattern, flags)
+    except re.error as e:
+        return "错误：无效正则表达式 → " + str(e)
+
+    # 确定要扫描的文件列表
+    if search_path.is_file():
+        candidates = [search_path]
+    else:
+        glob_pat = include if include else "**/*"
+        candidates = [p for p in search_path.glob(glob_pat) if p.is_file()]
+        # 排除忽略目录
+        candidates = [
+            p for p in candidates
+            if not any(part in _LIST_EXCLUDES for part in p.parts)
+        ]
+
+    results: list[str] = []
+    for file_path in sorted(candidates):
+        try:
+            text = file_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if compiled.search(line):
+                results.append(str(file_path) + ":" + str(lineno) + ":" + line)
+                if len(results) >= _GREP_MAX_RESULTS:
+                    return "\n".join(results) + "\n[结果已截断，仅显示前 " + str(_GREP_MAX_RESULTS) + " 条]"
+
+    return "\n".join(results) if results else "（未找到匹配）"
+
+
+def _list_files(path: str = ".", pattern: str = "") -> str:
+    """
+    列出目录下的文件树，自动过滤常见无关目录（.git、.venv 等）。
+
+    pattern：glob 过滤，如 "*.py"、"src/**/*.ts"。
+    返回相对路径列表，超过 _LIST_MAX_RESULTS 条时截断。
+    """
+    root = Path(path)
+    if not root.exists():
+        return "错误：路径不存在 → " + path
+    if root.is_file():
+        return str(root)
+
+    glob_pat = ("**/" + pattern) if pattern and "/" not in pattern else (pattern or "**/*")
+    all_files: list[Path] = []
+
+    for p in root.glob(glob_pat):
+        if not p.is_file():
+            continue
+        # 过滤黑名单目录
+        rel = p.relative_to(root)
+        if any(part in _LIST_EXCLUDES for part in rel.parts):
+            continue
+        all_files.append(rel)
+
+    all_files.sort()
+
+    if not all_files:
+        return "（目录为空或无匹配文件）"
+
+    lines = [str(f) for f in all_files[:_LIST_MAX_RESULTS]]
+    suffix = ""
+    if len(all_files) > _LIST_MAX_RESULTS:
+        suffix = "\n[已截断，共 " + str(len(all_files)) + " 个文件，仅显示前 " + str(_LIST_MAX_RESULTS) + " 个]"
+    return "\n".join(lines) + suffix
+
+
 # ── 工具注册表 ──────────────────────────────────────────────
 # 格式遵循 OpenAI function calling 规范
 
@@ -172,6 +294,61 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "grep_search",
+            "description": "在目录或文件中搜索正则表达式匹配的行，返回 filename:line:content 格式",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "要搜索的正则表达式（如 'def run_.*' 或字面字符串）",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "搜索的目录或文件路径，默认当前目录",
+                        "default": ".",
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "是否区分大小写，默认 true",
+                        "default": True,
+                    },
+                    "include": {
+                        "type": "string",
+                        "description": "文件名 glob 过滤，如 '*.py'、'*.{ts,tsx}'",
+                        "default": "",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "列出目录下的所有文件（自动过滤 .git、.venv、__pycache__ 等无关目录）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要列出的目录路径，默认当前目录",
+                        "default": ".",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "glob 过滤模式，如 '*.py'，默认列出所有文件",
+                        "default": "",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_shell",
             "description": "执行一条 shell 命令并返回输出，默认超时 30 秒",
             "parameters": {
@@ -195,10 +372,20 @@ TOOLS: list[dict] = [
 
 # 工具名称 → 执行函数的映射表
 _TOOL_EXECUTORS: dict[str, Any] = {
-    "read_file":  lambda args: _read_file(args["path"]),
-    "write_file": lambda args: _write_file(args["path"], args["content"]),
-    "edit_file":  lambda args: _edit_file(args["path"], args["old_string"], args["new_string"]),
-    "run_shell":  lambda args: _run_shell(args["command"], args.get("timeout", 30)),
+    "read_file":   lambda args: _read_file(args["path"]),
+    "write_file":  lambda args: _write_file(args["path"], args["content"]),
+    "edit_file":   lambda args: _edit_file(args["path"], args["old_string"], args["new_string"]),
+    "grep_search": lambda args: _grep_search(
+        args["pattern"],
+        args.get("path", "."),
+        args.get("case_sensitive", True),
+        args.get("include", ""),
+    ),
+    "list_files":  lambda args: _list_files(
+        args.get("path", "."),
+        args.get("pattern", ""),
+    ),
+    "run_shell":   lambda args: _run_shell(args["command"], args.get("timeout", 30)),
 }
 
 
