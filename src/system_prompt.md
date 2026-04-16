@@ -14,10 +14,13 @@
 ## 工具使用规范
 
 - **read_file**：读文件，超过 50,000 字时自动截断，告知用户
-- **edit_file**：精准替换，old_string 必须在文件中唯一匹配
-- **write_file**：全文覆盖，仅用于新建文件或整体重写
-- **grep_search**：搜索代码内容，不要用 run_shell('grep ...')
-- **list_files**：列目录，不要用 run_shell('ls ...')
+- **edit_file**：修改现有文件的首选工具。提供 `old_string`（含足够上下文保证唯一）和 `new_string`。
+  - 若返回"未找到匹配"→ 先用 read_file 确认实际内容再重试
+  - 若返回"找到 N 处匹配"→ 在 old_string 中加入更多上下文行使其唯一
+  - 缩进由工具自动对齐，new_string 无需手动补前导空白
+- **write_file**：仅用于新建文件或需要整体重写的场景，不应用于局部修改
+- **grep_search**：搜索代码内容（尚未实现时改用 run_shell('grep ...')）
+- **list_files**：列目录（尚未实现时改用 run_shell('ls ...')）
 - **run_shell**：执行其他无法用专用工具完成的命令
 
 ## 输出规范

@@ -62,6 +62,46 @@ def _run_shell(command: str, timeout: int = 30) -> str:
         return "错误：命令超时（" + str(timeout) + "s）→ " + command
 
 
+def _edit_file(path: str, old_string: str, new_string: str) -> str:
+    """
+    精准替换文件中的指定字符串。
+
+    唯一性约束：old_string 在文件中必须有且仅有一处匹配。
+    - 匹配数 = 0 → 报错，提示内容不存在
+    - 匹配数 > 1 → 报错，要求提供更多上下文使其唯一
+    - 匹配数 = 1 → 执行替换，自动对齐 new_string 的首行缩进
+    """
+    p = Path(path)
+    if not p.exists():
+        return "错误：文件不存在 → " + path
+    if not p.is_file():
+        return "错误：路径不是文件 → " + path
+
+    try:
+        content = p.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return "错误：无法以 UTF-8 读取 → " + path
+
+    count = content.count(old_string)
+    if count == 0:
+        return "错误：未找到匹配内容，请确认 old_string 与文件内容完全一致（包括空格和换行）"
+    if count > 1:
+        return "错误：找到 " + str(count) + " 处匹配，old_string 必须唯一，请提供更多上下文"
+
+    # 自动对齐：提取 old_string 首行的前导空白，应用到 new_string 各行
+    old_first_line = old_string.split("\n")[0]
+    leading = old_first_line[: len(old_first_line) - len(old_first_line.lstrip())]
+    if leading and not new_string.startswith(leading):
+        new_string = "\n".join(
+            leading + line if line.strip() else line
+            for line in new_string.split("\n")
+        )
+
+    new_content = content.replace(old_string, new_string, 1)
+    p.write_text(new_content, encoding="utf-8")
+    return "已替换 " + path + "（1 处）"
+
+
 # ── 工具注册表 ──────────────────────────────────────────────
 # 格式遵循 OpenAI function calling 规范
 
@@ -107,6 +147,31 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "edit_file",
+            "description": "精准替换文件中的一段内容。old_string 必须在文件中唯一匹配，用于小范围修改；需要全文重写时改用 write_file",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要修改的文件路径",
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "要被替换的原始内容，必须与文件中完全一致（含缩进和换行）",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "替换后的新内容",
+                    },
+                },
+                "required": ["path", "old_string", "new_string"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_shell",
             "description": "执行一条 shell 命令并返回输出，默认超时 30 秒",
             "parameters": {
@@ -132,6 +197,7 @@ TOOLS: list[dict] = [
 _TOOL_EXECUTORS: dict[str, Any] = {
     "read_file":  lambda args: _read_file(args["path"]),
     "write_file": lambda args: _write_file(args["path"], args["content"]),
+    "edit_file":  lambda args: _edit_file(args["path"], args["old_string"], args["new_string"]),
     "run_shell":  lambda args: _run_shell(args["command"], args.get("timeout", 30)),
 }
 
