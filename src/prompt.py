@@ -76,7 +76,7 @@ def load_claude_md(start_dir: str | None = None) -> str:
         candidate = search_dir / "CLAUDE.md"
         if candidate.exists():
             content = candidate.read_text(encoding="utf-8").strip()
-            return f"## 项目上下文（来自 CLAUDE.md）\n\n{content}"
+            return f"## 项目约定（来自 CLAUDE.md）\n\n{content}"
         parent = search_dir.parent
         if parent == search_dir:
             break
