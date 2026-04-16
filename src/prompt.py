@@ -15,42 +15,27 @@ from pathlib import Path
 _TEMPLATE_PATH = Path(__file__).parent / "system_prompt.md"
 
 
-def get_git_context() -> str:
-    """获取当前目录的 git 状态信息，非 git 仓库时返回空字符串"""
+def get_git_context(cwd: str | None = None) -> str:
+    """
+    获取指定目录（默认为当前目录）的 git 状态信息。
+    读取的是 agent 正在工作的目标项目，而不是 Harness 源码目录。
+    非 git 仓库时返回空字符串。
+    """
+    work_dir = cwd or os.getcwd()
+    run = lambda args: subprocess.run(
+        args, capture_output=True, text=True, timeout=3, cwd=work_dir
+    )
+
     try:
-        # 检测是否在 git 仓库中
-        result = subprocess.run(
-            ["git", "rev-parse", "--is-inside-work-tree"],
-            capture_output=True, text=True, timeout=3
-        )
-        if result.returncode != 0:
+        if run(["git", "rev-parse", "--is-inside-work-tree"]).returncode != 0:
             return ""
 
-        # 获取用户名
-        user = subprocess.run(
-            ["git", "config", "user.name"],
-            capture_output=True, text=True, timeout=3
-        ).stdout.strip()
+        user   = run(["git", "config", "user.name"]).stdout.strip()
+        branch = run(["git", "branch", "--show-current"]).stdout.strip()
+        log    = run(["git", "log", "--oneline", "-3"]).stdout.strip()
+        status = run(["git", "status", "--short"]).stdout.strip()
 
-        # 获取当前分支
-        branch = subprocess.run(
-            ["git", "branch", "--show-current"],
-            capture_output=True, text=True, timeout=3
-        ).stdout.strip()
-
-        # 获取最近 3 条提交
-        log = subprocess.run(
-            ["git", "log", "--oneline", "-3"],
-            capture_output=True, text=True, timeout=3
-        ).stdout.strip()
-
-        # 获取工作区状态摘要
-        status = subprocess.run(
-            ["git", "status", "--short"],
-            capture_output=True, text=True, timeout=3
-        ).stdout.strip()
-
-        lines = [f"## Git 上下文", f""]
+        lines = ["## Git 上下文", ""]
         if user:
             lines.append(f"用户：{user}，当前分支：{branch}")
         if log:
@@ -93,7 +78,7 @@ def build_system_prompt(cwd: str | None = None) -> str:
     template = _TEMPLATE_PATH.read_text(encoding="utf-8")
 
     current_dir = cwd or os.getcwd()
-    git_ctx = get_git_context()
+    git_ctx = get_git_context(current_dir)   # 与 cwd 保持一致，读目标项目
     claude_md = load_claude_md(current_dir)
 
     replacements = {
