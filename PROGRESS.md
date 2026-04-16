@@ -4,7 +4,7 @@
 
 - **当前阶段**：骨架阶段
 - **当前步骤**：Step 3 — Agent 循环核心 + 基础 CLI
-- **当前子任务**：3.3 Agent 主循环（待开始）
+- **当前子任务**：3.4 CLI 界面（待开始）
 - **最后更新**：2026-04-16
 
 ---
@@ -47,7 +47,7 @@
 
 - [x] 3.1 工具注册表 — `src/tools.py`，JSON Schema 定义 + 工具字典
 - [x] 3.2 基础工具实现 — read_file、write_file、run_shell 三个工具
-- [ ] 3.3 Agent 主循环 — `src/agent.py`，while True + tool_calls 处理
+- [x] 3.3 Agent 主循环 — `src/agent.py`，while True + tool_calls 处理
 - [ ] 3.4 CLI 界面 — `src/cli.py`，REPL + argparse
 - [ ] 3.5 仪表盘页面 — 展示 Agent 循环流程图 + 实时对话演示
 
@@ -141,6 +141,7 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-16 | 3.3 Agent 主循环 | 完成 | AgentSession + run_agent()，工具调用闭环验证通过，Token 追踪正常 |
 | 2026-04-16 | 3.1-3.2 工具注册表+三工具实现 | 完成 | src/tools.py，run_tool() 分发，5项测试全通过 |
 | 2026-04-16 | 2.4 仪表盘页面 | 完成 | step2_prompt.py，三 Tab：模板/组装结果/组件拆解，Step 2 封版 |
 | 2026-04-16 | 2.1-2.3 提示词模板+组装器+CLAUDE.md | 完成 | system_prompt.md 占位符，prompt.py 三函数，组装后 1302 字符验证通过 |
