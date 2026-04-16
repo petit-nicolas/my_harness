@@ -52,6 +52,37 @@ def print_cost(session: AgentSession, elapsed: float) -> None:
         f"total {u.total}[/dim]"
     )
 
+# ── 安全确认回调 ─────────────────────────────────────────────
+
+def make_confirm_fn(yolo: bool):
+    """
+    构造 confirm_fn 回调。
+
+    yolo=True  → 返回 None，agent.py 跳过所有安全检查
+    yolo=False → 返回交互式 y/n 确认函数
+    """
+    if yolo:
+        return None  # None 告知 run_agent 跳过安全检查
+
+    def confirm(tool_name: str, reason: str, arguments: dict) -> bool:
+        # 构造简短的操作描述
+        if tool_name == "run_shell":
+            target = arguments.get("command", "")[:80]
+        else:
+            target = arguments.get("path", "")
+
+        console.print(
+            f"\n  [bold yellow]⚠ 危险操作[/bold yellow]  {reason}\n"
+            f"  [dim]工具[/dim] {tool_name}  [dim]目标[/dim] {target}"
+        )
+        try:
+            answer = input("  继续执行？[y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+        return answer in ("y", "yes")
+
+    return confirm
+
 # ── 内置命令 ────────────────────────────────────────────────
 
 COMMANDS = {
@@ -90,10 +121,12 @@ def handle_command(cmd: str, session: AgentSession) -> bool:
 
 # ── REPL 主循环 ─────────────────────────────────────────────
 
-def repl(session: AgentSession) -> None:
+def repl(session: AgentSession, confirm_fn=None) -> None:
     """多轮交互 REPL"""
+    yolo_hint = "  [bold red]⚡ YOLO 模式：跳过所有安全检查[/bold red]\n" if confirm_fn is None else ""
     console.print(Panel.fit(
         "[bold]Harness[/bold]  极简 Coding Agent\n"
+        + yolo_hint +
         "[dim]输入 /help 查看命令，Ctrl+C 中断当前任务，再次 Ctrl+C 退出[/dim]",
         border_style="blue",
     ))
@@ -138,6 +171,7 @@ def repl(session: AgentSession) -> None:
                 on_text=print_agent,
                 on_tool_call=print_tool_call,
                 on_tool_result=print_tool_result,
+                confirm_fn=confirm_fn,
                 stop_event=stop_event,
             )
         except Exception as e:
@@ -148,7 +182,7 @@ def repl(session: AgentSession) -> None:
 
 # ── 单次执行模式 ────────────────────────────────────────────
 
-def run_once(prompt: str) -> None:
+def run_once(prompt: str, confirm_fn=None) -> None:
     """--prompt 模式：执行一次后退出"""
     session = AgentSession()
     print_user(prompt)
@@ -160,6 +194,7 @@ def run_once(prompt: str) -> None:
             on_text=print_agent,
             on_tool_call=print_tool_call,
             on_tool_result=print_tool_result,
+            confirm_fn=confirm_fn,
         )
     except Exception as e:
         print_error(str(e))
@@ -184,11 +219,17 @@ def run_cli() -> None:
         help="指定工作目录（默认为当前目录）",
         default=os.getcwd(),
     )
+    parser.add_argument(
+        "--yolo",
+        action="store_true",
+        help="跳过所有危险操作确认（谨慎使用）",
+    )
     args = parser.parse_args()
 
+    confirm_fn = make_confirm_fn(yolo=args.yolo)
     session = AgentSession(cwd=args.cwd)
 
     if args.prompt:
-        run_once(args.prompt)
+        run_once(args.prompt, confirm_fn=confirm_fn)
     else:
-        repl(session)
+        repl(session, confirm_fn=confirm_fn)

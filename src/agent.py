@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from src.client import chat, DEFAULT_MODEL
+from src.permissions import PermissionCache, assess_tool_call
 from src.prompt import build_system_prompt
 from src.tools import TOOLS, run_tool
 
@@ -49,6 +50,7 @@ class AgentSession:
     messages: list[dict] = field(default_factory=list)
     usage: TokenUsage = field(default_factory=TokenUsage)
     cwd: str = field(default_factory=os.getcwd)
+    perm_cache: PermissionCache = field(default_factory=PermissionCache)
 
     def add_user(self, text: str) -> None:
         self.messages.append({"role": "user", "content": text})
@@ -88,18 +90,22 @@ def run_agent(
     on_text: Callable[[str], None] | None = None,
     on_tool_call: Callable[[str, dict], None] | None = None,
     on_tool_result: Callable[[str, str], None] | None = None,
+    confirm_fn: Callable[[str, str, dict], bool] | None = None,
     stop_event: threading.Event | None = None,
 ) -> str:
     """
     执行一轮完整的 Agent 对话。
 
     Args:
-        session:        当前会话状态（消息历史、Token 用量）
+        session:        当前会话状态（消息历史、Token 用量、授权缓存）
         user_input:     本轮用户输入
         model:          使用的模型名称
         on_text:        收到模型文本时的回调（用于实时打印）
         on_tool_call:   工具被触发时的回调（工具名, 参数）
         on_tool_result: 工具执行完成时的回调（工具名, 结果）
+        confirm_fn:     危险操作确认回调 (tool_name, risk_reason, arguments) → bool
+                        返回 True=继续执行，False=跳过。
+                        为 None 时跳过安全检查（--yolo 模式）。
         stop_event:     Ctrl+C 中断信号，置位后跳出循环
 
     Returns:
@@ -151,6 +157,27 @@ def run_agent(
 
                 if on_tool_call:
                     on_tool_call(name, arguments)
+
+                # 安全检查：confirm_fn=None 表示 yolo 模式，直接执行
+                if confirm_fn is not None:
+                    risk = assess_tool_call(name, arguments, session.perm_cache)
+                    if risk.is_risky:
+                        allowed = confirm_fn(name, risk.reason, arguments)
+                        if allowed:
+                            # 缓存授权，本轮同样操作不再询问
+                            target = arguments.get("command") or arguments.get("path", "")
+                            session.perm_cache.approve(name, target)
+                        else:
+                            result = "[已跳过：用户拒绝执行 " + name + "（" + risk.reason + "）]"
+                            if on_tool_result:
+                                on_tool_result(name, result)
+                            session.add_tool_result(tc.id, result)
+                            full_messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": result,
+                            })
+                            continue
 
                 result = run_tool(name, arguments)
 
