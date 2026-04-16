@@ -114,11 +114,10 @@ if user_input:
     def on_tool_result(name: str, result: str) -> None:
         round_tool_results.append({"name": name, "content": result})
 
-    final_reply = ""
+    reply_box = [""]   # 用列表存储，回调可直接修改元素，无需 nonlocal
 
     def on_text(text: str) -> None:
-        nonlocal final_reply
-        final_reply = text
+        reply_box[0] = text
 
     with st.spinner("Agent 运行中..."):
         t0 = time.time()
@@ -131,8 +130,10 @@ if user_input:
                 on_tool_result=on_tool_result,
             )
         except Exception as e:
-            final_reply = f"错误：{e}"
+            reply_box[0] = f"错误：{e}"
         elapsed = time.time() - t0
+
+    final_reply = reply_box[0]
 
     # 把工具调用/结果插入日志
     for tc, tr in zip(round_tool_calls, round_tool_results):
