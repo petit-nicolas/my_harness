@@ -2,10 +2,10 @@
 
 ## 当前状态
 
-- **当前阶段**：准备阶段
-- **当前步骤**：Step 0 — 项目准备工作
-- **当前子任务**：0.2 项目骨架搭建（待开始）
-- **最后更新**：2026-04-15
+- **当前阶段**：骨架阶段
+- **当前步骤**：Step 1 — 项目初始化 + 千问 API 对接
+- **当前子任务**：1.1 API 客户端封装（待开始）
+- **最后更新**：2026-04-16
 
 ---
 
@@ -14,10 +14,10 @@
 ### Step 0：项目准备工作
 
 - [x] 0.1 Cursor 规则与日志机制 — `.cursor/rules/` + `PROGRESS.md`
-- [ ] 0.2 项目骨架搭建 — git init、`.gitignore`、`requirements.txt`、目录结构
-- [ ] 0.3 Streamlit 仪表盘骨架 — `dashboard/app.py` + 首页
+- [x] 0.2 项目骨架搭建 — git init、`.gitignore`、`requirements.txt`、目录结构
+- [x] 0.3 Streamlit 仪表盘骨架 — `dashboard/app.py` + 首页
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-0)
 
 ---
 
@@ -113,7 +113,7 @@
 - [ ] 9.2 REPL 命令扩展 — /clear、/cost、/help
 - [ ] 9.3 Ctrl+C 双级处理 + Token 展示 — signal 捕获 + 费用统计
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-0)
 
 ---
 
@@ -123,7 +123,7 @@
 - [ ] 10.2 记忆分类与检索 — user/feedback/project/reference 四类
 - [ ] 10.3 /remember 命令 + 自动记忆 — 主动记录 + 对话后提取
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-0)
 
 ---
 
@@ -141,4 +141,6 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-16 | 0.3 Streamlit 仪表盘骨架 | 完成 | dashboard/app.py + step0_overview.py，HTTP 200 验证通过，Step 0 封版 |
+| 2026-04-16 | 0.2 项目骨架搭建 | 完成 | git init、.gitignore、requirements.txt、src/ + dashboard/ 目录、依赖安装验证、初始 commit |
 | 2026-04-15 | 0.1 Cursor 规则与日志机制 | 完成 | 创建 3 份 .cursor/rules/ 规则 + PROGRESS.md |
