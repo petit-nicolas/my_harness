@@ -6,6 +6,9 @@ import streamlit as st
 import pathlib
 import re
 
+# 项目根目录：dashboard/pages/ 上两级
+ROOT = pathlib.Path(__file__).parent.parent.parent
+
 st.title("Step 0 · 项目概览")
 st.caption("准备阶段 — 项目规则、骨架与仪表盘框架")
 
@@ -27,7 +30,6 @@ st.markdown("""
 """)
 
 col1, col2 = st.columns(2)
-
 with col1:
     st.subheader("阶段分布")
     st.markdown("""
@@ -55,21 +57,21 @@ with col2:
 # ── 当前进度 ───────────────────────────────────────────────
 st.header("当前进度")
 
-progress_path = pathlib.Path(__file__).parent.parent / "PROGRESS.md"
+progress_path = ROOT / "PROGRESS.md"
 if progress_path.exists():
     raw = progress_path.read_text(encoding="utf-8")
 
-    # 提取当前状态块
+    # 提取"当前状态"区域
     match = re.search(r"## 当前状态\n(.*?)---", raw, re.DOTALL)
     if match:
         st.markdown(match.group(1).strip())
 
-    # 统计完成情况
+    # 进度条
     total = raw.count("- [ ]") + raw.count("- [x]")
     done = raw.count("- [x]")
     st.progress(done / total if total else 0, text=f"已完成 {done} / {total} 个子任务")
 else:
-    st.warning("未找到 PROGRESS.md，请确认项目根目录正确")
+    st.warning(f"未找到 PROGRESS.md，查找路径：{progress_path}")
 
 # ── 目录结构 ───────────────────────────────────────────────
 st.header("项目目录结构")
@@ -85,13 +87,13 @@ harness/
 └── CLAUDE.md               # 项目上下文
 """, language="text")
 
-# ── 关键文件 ───────────────────────────────────────────────
+# ── 关键文件速览 ────────────────────────────────────────────
 st.header("关键文件速览")
 
 tab1, tab2, tab3 = st.tabs(["PLAN.md", "PROGRESS.md", ".cursor/rules"])
 
 with tab1:
-    plan_path = pathlib.Path(__file__).parent.parent / "PLAN.md"
+    plan_path = ROOT / "PLAN.md"
     if plan_path.exists():
         text = plan_path.read_text(encoding="utf-8")
         st.markdown(text[:3000] + "\n\n...（截取前 3000 字）")
@@ -101,7 +103,7 @@ with tab2:
         st.markdown(progress_path.read_text(encoding="utf-8"))
 
 with tab3:
-    rules_dir = pathlib.Path(__file__).parent.parent / ".cursor" / "rules"
+    rules_dir = ROOT / ".cursor" / "rules"
     for rule_file in sorted(rules_dir.glob("*.mdc")):
         with st.expander(rule_file.name):
             st.markdown(rule_file.read_text(encoding="utf-8"))
