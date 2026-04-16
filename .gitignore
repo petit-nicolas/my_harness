@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# 环境变量与密钥
+.ENV
+.env
+*.env
+
+# 会话与记忆数据
+.harness/
+
+# Streamlit 缓存
+.streamlit/
+
+# IDE
+.DS_Store
+*.swp
+*.swo
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/

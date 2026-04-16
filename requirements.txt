@@ -1,0 +1,9 @@
+# 核心依赖
+openai>=1.30.0
+python-dotenv>=1.0.0
+
+# 终端 UI
+rich>=13.7.0
+
+# 教学仪表盘
+streamlit>=1.35.0

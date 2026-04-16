@@ -1,0 +1,42 @@
+---
+description: Python 编码规范与项目约定
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python 编码规范
+
+## 命名
+
+- 文件名、函数名、变量名：`snake_case`
+- 类名：`PascalCase`
+- 常量：`UPPER_SNAKE_CASE`
+- 私有方法/属性：单下划线前缀 `_internal_method`
+
+## 代码风格
+
+- 类型注解：所有函数参数和返回值都要标注类型
+- docstring：公开函数用中文简要描述用途，不写废话
+- 导入顺序：标准库 → 第三方库 → 项目内部模块，各组之间空一行
+- 避免 `from module import *`
+
+## 错误处理
+
+- 对外部调用（API、文件、Shell）用 try/except 包裹
+- 捕获具体异常类型，不要裸 `except Exception`
+- 错误信息用中文，面向用户
+
+## 项目结构约定
+
+- 所有源码放在 `src/` 目录下
+- 入口文件：`src/main.py`
+- 每个模块职责单一，一个文件一个关注点
+- 模块间通过函数调用耦合，避免循环导入
+
+## 工具定义约定
+
+工具函数统一注册在 `src/tools.py` 中，每个工具包含：
+- `name`：工具名称
+- `description`：功能描述（精炼，不超过 2 句话）
+- `parameters`：JSON Schema 格式的参数定义
+- `execute()`：执行函数，返回字符串结果
