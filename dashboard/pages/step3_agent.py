@@ -86,13 +86,13 @@ for entry in st.session_state.chat_log:
         with st.chat_message("assistant"):
             st.markdown(entry["content"])
     elif role == "tool_call":
-        with st.chat_message("assistant", avatar="⚙"):
+        with st.chat_message("assistant", avatar="🔧"):
             st.markdown(
                 f"**调用工具**：`{entry['name']}`  \n"
                 f"**参数**：`{json.dumps(entry['args'], ensure_ascii=False)}`"
             )
     elif role == "tool_result":
-        with st.chat_message("assistant", avatar="↳"):
+        with st.chat_message("assistant", avatar="📤"):
             preview = entry["content"][:300]
             suffix = "..." if len(entry["content"]) > 300 else ""
             st.markdown(f"**结果**：\n```\n{preview}{suffix}\n```")
