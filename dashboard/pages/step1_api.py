@@ -5,11 +5,10 @@ Step 1 — API 对接页
 import sys
 import json
 import time
+import pathlib
 import streamlit as st
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
-
-import pathlib
 
 ROOT = pathlib.Path(__file__).parent.parent.parent
 
