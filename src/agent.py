@@ -26,11 +26,15 @@ from typing import Callable
 from src.client import chat, DEFAULT_MODEL
 from src.permissions import PermissionCache, assess_tool_call
 from src.prompt import build_system_prompt
-from src.tools import TOOLS, run_tool
+from src.tools import TOOLS, cache_tool_result, run_tool
 
-# qwen-plus 上下文窗口（token），压缩阈值 = 75%
+# qwen-plus 上下文窗口（token），压缩阈值 = 80%
 _MODEL_MAX_TOKENS = 32_000
-_COMPACT_THRESHOLD = 0.75
+_COMPACT_THRESHOLD = 0.80
+
+# Lazy Expansion：工具结果在历史中的预览长度（字符数）
+# 超过此长度时，历史只保留预览 + 提示，完整结果进入 tools._LAST_RESULTS
+_TOOL_PREVIEW_SIZE = 3000
 
 
 # ── 会话状态 ────────────────────────────────────────────────
@@ -203,6 +207,35 @@ def should_compact(session: "AgentSession") -> bool:
         return actual >= _MODEL_MAX_TOKENS * _COMPACT_THRESHOLD
     # fallback：字符估算
     return estimate_tokens(session.messages) >= _MODEL_MAX_TOKENS * _COMPACT_THRESHOLD
+
+
+# ── Lazy Expansion：工具结果预览 ────────────────────────────
+
+def _truncate_for_history(call_id: str, full_result: str) -> str:
+    """
+    为工具结果生成"预览 + 缓存指针"版本（历史消息只存这个短版）。
+
+    - 短结果 (< _TOOL_PREVIEW_SIZE) 原样返回，不动
+    - 长结果：截取前半段，附加调用 read_tool_result 的提示
+    - 无论长短，完整内容都写入 tools._LAST_RESULTS[call_id]（便于日后查询）
+    """
+    if call_id:
+        cache_tool_result(call_id, full_result)
+
+    total = len(full_result)
+    if total <= _TOOL_PREVIEW_SIZE:
+        return full_result
+
+    preview = full_result[:_TOOL_PREVIEW_SIZE]
+    remaining = total - _TOOL_PREVIEW_SIZE
+
+    hint = (
+        "\n\n[内容已截断预览：显示前 " + str(_TOOL_PREVIEW_SIZE) + " 字符，"
+        + "还有 " + str(remaining) + " 字符已缓存。"
+        + "如需查看后续部分，调用 read_tool_result(call_id=\"" + call_id + "\", "
+        + "offset=" + str(_TOOL_PREVIEW_SIZE) + ") 即可获取]"
+    )
+    return preview + hint
 
 
 # ── 流式响应累加器 ───────────────────────────────────────────
@@ -409,13 +442,15 @@ def run_agent(
                 result = run_tool(name, arguments)
 
                 if on_tool_result:
-                    on_tool_result(name, result)
+                    on_tool_result(name, result)   # UI 看完整结果
 
-                session.add_tool_result(tc["id"], result)
+                # Lazy Expansion：历史消息只存预览，完整内容入缓存
+                history_result = _truncate_for_history(tc["id"], result)
+                session.add_tool_result(tc["id"], history_result)
                 full_messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
-                    "content": result,
+                    "content": history_result,
                 })
             continue  # 把工具结果送回模型
 

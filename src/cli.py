@@ -21,6 +21,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from src.agent import AgentSession, run_agent, compact_context, estimate_tokens
+from src.tools import clear_result_cache
 from src.ui import StreamPrinter, print_tool_call_rich, print_tool_result_rich
 
 console = Console()
@@ -104,7 +105,8 @@ def handle_command(cmd: str, session: AgentSession) -> bool:
         return True
     if cmd == "/clear":
         session.messages.clear()
-        console.print("[dim]对话历史已清空[/dim]")
+        clear_result_cache()
+        console.print("[dim]对话历史 + 工具结果缓存已清空[/dim]")
         return True
     if cmd == "/cost":
         u = session.usage

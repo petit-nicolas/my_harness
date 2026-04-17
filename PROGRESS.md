@@ -2,9 +2,9 @@
 
 ## 当前状态
 
-- **当前阶段**：骨架阶段
-- **当前步骤**：Step 4 — Search-and-Replace 精准编辑工具
-- **当前子任务**：4.3 仪表盘页面（进行中）
+- **当前阶段**：能力阶段
+- **当前步骤**：Step 9 — 会话持久化 + REPL 命令扩展
+- **当前子任务**：9.1 会话持久化（待开始）
 - **最后更新**：2026-04-16
 
 ---
@@ -59,51 +59,54 @@
 
 - [x] 4.1 edit_file 工具 — 唯一性校验 + 替换逻辑
 - [x] 4.2 缩进保留 + 提示词更新 — 自动对齐 + 系统提示引导
-- [ ] 4.3 仪表盘页面 — 编辑效果 diff 对比展示
+- [x] 4.3 仪表盘页面 — 编辑效果 diff 对比展示
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-4)
 
 ---
 
 ### Step 5：文件搜索与导航工具
 
-- [ ] 5.1 grep_search 工具 — subprocess 调用 grep/rg
-- [ ] 5.2 list_files 工具 — pathlib.rglob + 排除规则
-- [ ] 5.3 仪表盘页面 — 搜索结果可视化
+- [x] 5.1 grep_search 工具 — rg 优先 + Python re 双路回退
+- [x] 5.2 list_files 工具 — pathlib.glob + 黑名单过滤
+- [x] 5.3 系统提示词更新 — 搜索工具使用规范
+- [x] 5.4 仪表盘页面 — 搜索结果可视化 + 典型工作流演示
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-5)
 
 ---
 
 ### Step 6：安全确认机制 + 危险命令拦截
 
-- [ ] 6.1 危险命令识别 — `src/permissions.py`，正则匹配
-- [ ] 6.2 交互式确认 — y/n 提示 + 路径缓存
-- [ ] 6.3 --yolo 模式 — argparse 参数 + 跳过逻辑
-- [ ] 6.4 仪表盘页面 — 安全规则配置界面 + 拦截演示
+- [x] 6.1 危险命令识别 — `src/permissions.py`，正则匹配（10 条规则）
+- [x] 6.2 交互式确认 — confirm_fn 回调 + PermissionCache 授权缓存
+- [x] 6.3 --yolo 模式 — argparse 参数，confirm_fn=None 跳过检查
+- [x] 6.4 仪表盘页面 — 实时检测 + 规则列表 + yolo 说明
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-6)
 
 ---
 
 ### Step 7：流式输出
 
-- [ ] 7.1 流式 API 对接 — stream=True + chunk 遍历
-- [ ] 7.2 增量文本输出 — 逐字打印 + tool_calls 积累
-- [ ] 7.3 Rich UI 集成 — `src/ui.py`，彩色输出 + spinner
-- [ ] 7.4 仪表盘页面 — 流式效果演示
+- [x] 7.1 流式 API 对接 — `_collect_stream()` 文本 + tool_calls delta 累加
+- [x] 7.2 增量文本输出 — `on_text_chunk` 回调，`stream=True` 默认启用
+- [x] 7.3 Rich UI 集成 — `src/ui.py`，`StreamPrinter` + `thinking_spinner`
+- [x] 7.4 仪表盘页面 — 流式对话体验 + chunk 累加原理 + 流式 vs 非流式对比
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-7)
 
 ---
 
 ### Step 8：错误重试 + 上下文压缩
 
-- [ ] 8.1 指数退避重试 — `src/retry.py`，429/5xx/超时处理
-- [ ] 8.2 上下文压缩策略 — 85% 阈值 + LLM 摘要 + 消息重组
-- [ ] 8.3 /compact 命令 — REPL 集成 + 手动触发
+- [x] 8.1 指数退避重试 — `src/retry.py`，429/5xx/网络超时，client.py 集成
+- [x] 8.2 上下文压缩策略 — 80% 阈值 + LLM 摘要 + 消息重组 + 自动触发
+- [x] 8.3 /compact 命令 — REPL 集成，estimate_tokens 预览 + 手动触发
+- [x] 8.4 仪表盘页面 — 退避策略模拟 + 压缩前后对比 + 代码原理
+- [x] 8.5 Lazy Expansion 分层缓冲 — 大工具结果预览+缓存，read_tool_result 按需取后续
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-8)
 
 ---
 
@@ -141,6 +144,12 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-16 | 8.5 Lazy Expansion 分层缓冲 | 完成 | _LAST_RESULTS 模块缓存+read_tool_result 工具+_truncate_for_history，8 项单元测试通过，step-8 tag 重打 |
+| 2026-04-16 | 8.1-8.4 重试+压缩全套 | 完成 | retry.py+client集成+compact_context+/compact命令+仪表盘，Step 8 封版 |
+| 2026-04-16 | 7.1-7.4 流式输出全套 | 完成 | _collect_stream+StreamPrinter+on_text_chunk+cli改造+仪表盘，Step 7 封版 |
+| 2026-04-16 | 6.1-6.4 安全确认机制全套 | 完成 | permissions.py+confirm_fn+yolo+仪表盘，Step 6 封版 |
+| 2026-04-16 | 5.1-5.4 搜索工具全套 | 完成 | grep_search(rg/re双路)+list_files(黑名单过滤)+提示词+仪表盘，Step 5 封版 |
+| 2026-04-16 | 4.3 仪表盘页面 | 完成 | step4_edit.py，三 Tab：交互式体验+缩进对齐演示+edit vs write 对比，Step 4 封版 |
 | 2026-04-16 | 4.2 缩进保留+提示词更新 | 完成 | system_prompt.md 补充 edit_file 三种失败场景处理指引 |
 | 2026-04-16 | 4.1 edit_file 工具 | 完成 | 唯一性校验+缩进对齐+4项测试全通过 |
 | 2026-04-16 | 3.5 仪表盘页面 | 完成 | step3_agent.py，实时对话+工具调用展示+消息历史，Step 3 封版 |

@@ -6,12 +6,69 @@
 - execute() 函数（实际执行逻辑）
 
 工具执行统一通过 run_tool() 分发，返回字符串结果。
+
+Lazy Expansion（延迟展开）机制：
+    模块级 _LAST_RESULTS 缓存每次工具调用的完整结果，键为 tool_call_id。
+    agent.py 在写入历史时生成预览 + 缓存完整内容。
+    模型若需要后续内容，调用 read_tool_result(call_id, offset) 从缓存取。
+    缓存随进程生命周期存活，一次运行内均可复用。
 """
 import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+
+# ── Lazy Expansion 缓存 ─────────────────────────────────────
+
+_LAST_RESULTS: dict[str, str] = {}
+
+
+def cache_tool_result(call_id: str, content: str) -> None:
+    """存入一次工具调用的完整结果（由 agent.py 在执行完毕后调用）"""
+    if call_id:
+        _LAST_RESULTS[call_id] = content
+
+
+def get_cached_result(call_id: str) -> str | None:
+    """读取缓存（不存在返回 None）"""
+    return _LAST_RESULTS.get(call_id)
+
+
+def clear_result_cache() -> None:
+    """清空所有缓存（用于 /clear 或新会话）"""
+    _LAST_RESULTS.clear()
+
+
+def _read_tool_result(call_id: str, offset: int = 0, length: int = 3000) -> str:
+    """
+    从缓存读取某次工具调用的完整结果（指定偏移量和长度）。
+
+    典型用法：模型在看到预览后，若想获取未见部分，调用本工具。
+    """
+    full = _LAST_RESULTS.get(call_id)
+    if full is None:
+        return (
+            "错误：未找到缓存 → call_id=" + call_id
+            + "\n（可用 call_id 仅限当前会话内已执行过的工具调用）"
+        )
+
+    total_len = len(full)
+    if offset < 0:
+        offset = 0
+    if offset >= total_len:
+        return "（偏移量 " + str(offset) + " 已超出内容总长度 " + str(total_len) + "）"
+
+    end = min(offset + length, total_len)
+    slice_text = full[offset:end]
+
+    header = "[缓存片段 call_id=" + call_id + "  总长度 " + str(total_len) + " 字符  当前 " + str(offset) + "-" + str(end) + "]\n"
+    if end < total_len:
+        footer = "\n\n[后续还有 " + str(total_len - end) + " 字符，如需继续查看：read_tool_result(call_id=\"" + call_id + "\", offset=" + str(end) + ")]"
+    else:
+        footer = "\n\n[已读至末尾]"
+
+    return header + slice_text + footer
 
 # ── 工具执行函数 ────────────────────────────────────────────
 
@@ -349,6 +406,37 @@ TOOLS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "read_tool_result",
+            "description": (
+                "读取此前某次工具调用的完整缓存结果。"
+                "当之前工具返回较大内容时，agent 只看到预览版本；若需要查看未显示的部分，"
+                "使用本工具并指定该次调用的 call_id 和 offset。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "call_id": {
+                        "type": "string",
+                        "description": "要查询的工具调用 ID（从预览末尾的提示中获取）",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "起始字符偏移量，默认 0",
+                        "default": 0,
+                    },
+                    "length": {
+                        "type": "integer",
+                        "description": "读取长度（字符数），默认 3000",
+                        "default": 3000,
+                    },
+                },
+                "required": ["call_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_shell",
             "description": "执行一条 shell 命令并返回输出，默认超时 30 秒",
             "parameters": {
@@ -384,6 +472,11 @@ _TOOL_EXECUTORS: dict[str, Any] = {
     "list_files":  lambda args: _list_files(
         args.get("path", "."),
         args.get("pattern", ""),
+    ),
+    "read_tool_result": lambda args: _read_tool_result(
+        args["call_id"],
+        args.get("offset", 0),
+        args.get("length", 3000),
     ),
     "run_shell":   lambda args: _run_shell(args["command"], args.get("timeout", 30)),
 }
