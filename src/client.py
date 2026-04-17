@@ -10,6 +10,8 @@ from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionChunk
 from dotenv import load_dotenv
 
+from src.retry import with_retry
+
 # 加载 .ENV 文件中的环境变量
 load_dotenv(dotenv_path=".ENV")
 
@@ -71,4 +73,8 @@ def chat(
     if tools:
         kwargs["tools"] = tools
 
-    return client.chat.completions.create(**kwargs)
+    # 流式请求不重试（迭代器无法重放），非流式自动重试 3 次
+    if stream:
+        return client.chat.completions.create(**kwargs)
+
+    return with_retry(lambda: client.chat.completions.create(**kwargs))

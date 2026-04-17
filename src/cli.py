@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from src.agent import AgentSession, run_agent
+from src.agent import AgentSession, run_agent, compact_context, estimate_tokens
 from src.ui import StreamPrinter, print_tool_call_rich, print_tool_result_rich
 
 console = Console()
@@ -85,10 +85,11 @@ def make_confirm_fn(yolo: bool):
 # ── 内置命令 ────────────────────────────────────────────────
 
 COMMANDS = {
-    "/help":  "显示所有可用命令",
-    "/clear": "清空当前对话历史",
-    "/cost":  "显示本次会话 Token 用量",
-    "/exit":  "退出 Harness",
+    "/help":    "显示所有可用命令",
+    "/clear":   "清空当前对话历史",
+    "/cost":    "显示本次会话 Token 用量",
+    "/compact": "压缩对话历史（保留最近 6 条，其余用摘要替换）",
+    "/exit":    "退出 Harness",
 }
 
 def handle_command(cmd: str, session: AgentSession) -> bool:
@@ -112,6 +113,18 @@ def handle_command(cmd: str, session: AgentSession) -> bool:
             f"completion {u.completion_tokens}  "
             f"total {u.total}"
         )
+        return True
+    if cmd == "/compact":
+        msg_count = len(session.messages)
+        est_tokens = estimate_tokens(session.messages)
+        console.print(f"[dim]  当前消息数：{msg_count}  估算 token：{est_tokens}[/dim]")
+        if msg_count == 0:
+            console.print("[dim]  对话历史为空，无需压缩[/dim]")
+            return True
+        with console.status("[dim]正在生成摘要...[/dim]", spinner="dots"):
+            summary = compact_context(session)
+        console.print(f"[dim]  压缩完成，剩余消息数：{len(session.messages)}[/dim]")
+        console.print(f"[dim]  摘要预览：{summary[:100]}...[/dim]" if len(summary) > 100 else f"[dim]  摘要：{summary}[/dim]")
         return True
     if cmd in ("/exit", "/quit"):
         console.print("[dim]Bye.[/dim]")

@@ -28,6 +28,10 @@ from src.permissions import PermissionCache, assess_tool_call
 from src.prompt import build_system_prompt
 from src.tools import TOOLS, run_tool
 
+# qwen-plus 上下文窗口（token），压缩阈值 = 75%
+_MODEL_MAX_TOKENS = 32_000
+_COMPACT_THRESHOLD = 0.75
+
 
 # ── 会话状态 ────────────────────────────────────────────────
 
@@ -89,6 +93,116 @@ class AgentSession:
             "tool_call_id": tool_call_id,
             "content": result,
         })
+
+
+# ── 上下文压缩 ───────────────────────────────────────────────
+
+def estimate_tokens(messages: list[dict]) -> int:
+    """
+    粗略估算消息列表的 token 数。
+
+    使用字符数 / 3.5 作为估算（中英文混合场景的经验值）。
+    实际精确计数需要 tiktoken，此处牺牲精度换取无依赖。
+    """
+    total_chars = 0
+    for msg in messages:
+        content = msg.get("content") or ""
+        if isinstance(content, str):
+            total_chars += len(content)
+        # tool_calls 的 arguments 也计入
+        for tc in msg.get("tool_calls") or []:
+            total_chars += len(tc.get("function", {}).get("arguments", ""))
+    return int(total_chars / 3.5)
+
+
+def compact_context(
+    session: "AgentSession",
+    model: str = DEFAULT_MODEL,
+    keep_recent: int = 6,
+    on_status: Callable[[str], None] | None = None,
+) -> str:
+    """
+    用 LLM 把早期对话历史压缩成摘要，重组 session.messages。
+
+    策略：
+    - 保留最近 keep_recent 条消息（保证对话连贯性）
+    - 对其余早期消息调用 LLM 生成摘要
+    - 摘要作为第一条 assistant 消息插入，取代早期消息
+
+    Returns:
+        摘要文本（失败时返回错误说明）
+    """
+    msgs = session.messages
+    if len(msgs) <= keep_recent:
+        return "（消息数量少，无需压缩）"
+
+    to_compress = msgs[:-keep_recent]
+    recent = msgs[-keep_recent:]
+
+    # 把要压缩的消息格式化给 LLM
+    history_text = ""
+    for m in to_compress:
+        role = m.get("role", "")
+        content = (m.get("content") or "").strip()
+        if role == "user":
+            history_text += f"\n用户：{content}"
+        elif role == "assistant":
+            history_text += f"\nAssistant：{content}"
+        elif role == "tool":
+            history_text += f"\n[工具结果]：{content[:200]}"
+
+    if on_status:
+        on_status("正在生成对话摘要...")
+
+    try:
+        resp = chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是对话历史摘要助手。请将以下对话历史压缩成简洁摘要，"
+                               "保留：已完成的工作、重要决策、关键文件路径、待办事项。"
+                               "使用第三人称，不超过 500 字。",
+                },
+                {
+                    "role": "user",
+                    "content": f"请压缩以下对话历史：\n{history_text}",
+                },
+            ],
+            model=model,
+            stream=False,
+        )
+        summary = resp.choices[0].message.content or "（摘要生成失败）"
+        session.usage.add(resp.usage)
+    except Exception as e:
+        return "压缩失败：" + str(e)
+
+    # 重组消息列表
+    session.messages = [
+        {
+            "role": "assistant",
+            "content": "[早期对话摘要]\n" + summary,
+        },
+        *recent,
+    ]
+
+    if on_status:
+        on_status(f"压缩完成：{len(to_compress)} 条消息 → 1 条摘要（保留最近 {keep_recent} 条）")
+
+    return summary
+
+
+def should_compact(session: "AgentSession") -> bool:
+    """
+    判断是否应该自动触发上下文压缩。
+
+    使用 session.usage 中的实际 token 数（由 API 返回），
+    若暂无 usage 数据则用字符估算。
+    """
+    actual = session.usage.total
+    if actual > 0:
+        return actual >= _MODEL_MAX_TOKENS * _COMPACT_THRESHOLD
+    # fallback：字符估算
+    return estimate_tokens(session.messages) >= _MODEL_MAX_TOKENS * _COMPACT_THRESHOLD
 
 
 # ── 流式响应累加器 ───────────────────────────────────────────
@@ -208,6 +322,15 @@ def run_agent(
     while True:
         if stop_event and stop_event.is_set():
             return "[已中断]"
+
+        # 自动压缩检查（每轮调用 API 前）
+        if should_compact(session):
+            compact_context(session, model=model)
+            # 重建 full_messages（压缩后 session.messages 已更新）
+            full_messages = [
+                {"role": "system", "content": build_system_prompt(session.cwd)},
+                *session.messages,
+            ]
 
         # ── 调用 API ───────────────────────────────────────
         if stream:
