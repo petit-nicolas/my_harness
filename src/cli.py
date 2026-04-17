@@ -21,6 +21,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from src.agent import AgentSession, run_agent, compact_context, estimate_tokens
+from src.session import save_session, load_session, list_sessions, delete_session, sessions_dir
 from src.tools import clear_result_cache
 from src.ui import StreamPrinter, print_tool_call_rich, print_tool_result_rich
 
@@ -46,10 +47,11 @@ def print_error(text: str) -> None:
 
 def print_cost(session: AgentSession, elapsed: float) -> None:
     u = session.usage
+    est = estimate_tokens(session.messages)
     console.print(
         f"[dim]  耗时 {elapsed:.1f}s  ·  "
         f"prompt {u.prompt_tokens}  completion {u.completion_tokens}  "
-        f"total {u.total}[/dim]"
+        f"total {u.total}  (历史估算 {est} tokens)[/dim]"
     )
 
 # ── 安全确认回调 ─────────────────────────────────────────────
@@ -86,22 +88,27 @@ def make_confirm_fn(yolo: bool):
 # ── 内置命令 ────────────────────────────────────────────────
 
 COMMANDS = {
-    "/help":    "显示所有可用命令",
-    "/clear":   "清空当前对话历史",
-    "/cost":    "显示本次会话 Token 用量",
-    "/compact": "压缩对话历史（保留最近 6 条，其余用摘要替换）",
-    "/exit":    "退出 Harness",
+    "/help":     "显示所有可用命令",
+    "/clear":    "清空当前对话历史",
+    "/cost":     "显示本次会话 Token 用量",
+    "/compact":  "压缩对话历史（保留最近 6 条，其余用摘要替换）",
+    "/save":     "保存当前会话到磁盘",
+    "/sessions": "列出最近保存的历史会话",
+    "/load <id>":"恢复指定会话（id 来自 /sessions）",
+    "/exit":     "退出 Harness",
 }
 
-def handle_command(cmd: str, session: AgentSession) -> bool:
+def handle_command(cmd: str, session: AgentSession, session_box: list | None = None) -> bool:
     """
     处理 / 开头的内置命令。
     返回 True 表示已处理，False 表示不是内置命令。
+
+    session_box: [session] 列表容器，允许 /load 替换 REPL 当前 session。
     """
     cmd = cmd.strip()
     if cmd == "/help":
         for name, desc in COMMANDS.items():
-            console.print(f"  [cyan]{name:<10}[/cyan] {desc}")
+            console.print(f"  [cyan]{name:<16}[/cyan] {desc}")
         return True
     if cmd == "/clear":
         session.messages.clear()
@@ -110,10 +117,14 @@ def handle_command(cmd: str, session: AgentSession) -> bool:
         return True
     if cmd == "/cost":
         u = session.usage
+        est = estimate_tokens(session.messages)
         console.print(
-            f"  prompt {u.prompt_tokens}  "
-            f"completion {u.completion_tokens}  "
-            f"total {u.total}"
+            f"\n  [bold]Token 用量[/bold]\n"
+            f"  [dim]累计 prompt[/dim]   {u.prompt_tokens}\n"
+            f"  [dim]累计 completion[/dim]{u.completion_tokens}\n"
+            f"  [dim]API 累计 total[/dim] {u.total}\n"
+            f"  [dim]历史估算 tokens[/dim]{est}   "
+            f"[dim](消息数 {len(session.messages)})[/dim]\n"
         )
         return True
     if cmd == "/compact":
@@ -127,6 +138,48 @@ def handle_command(cmd: str, session: AgentSession) -> bool:
             summary = compact_context(session)
         console.print(f"[dim]  压缩完成，剩余消息数：{len(session.messages)}[/dim]")
         console.print(f"[dim]  摘要预览：{summary[:100]}...[/dim]" if len(summary) > 100 else f"[dim]  摘要：{summary}[/dim]")
+        return True
+    if cmd == "/save":
+        if not session.messages:
+            console.print("[dim]  对话历史为空，无需保存[/dim]")
+            return True
+        try:
+            sid = save_session(session)
+            console.print(f"[dim]  已保存 → {sid}[/dim]")
+            console.print(f"[dim]  路径：{sessions_dir() / (sid + '.json')}[/dim]")
+        except Exception as e:
+            console.print(f"[bold red]保存失败[/bold red]  {e}")
+        return True
+    if cmd == "/sessions":
+        sessions = list_sessions(limit=10)
+        if not sessions:
+            console.print("[dim]  暂无历史会话[/dim]")
+        else:
+            console.print(f"  [dim]最近 {len(sessions)} 条会话（--resume <id> 可恢复）[/dim]")
+            for s in sessions:
+                console.print(
+                    f"  [cyan]{s['id']}[/cyan]"
+                    f"  [dim]{s['msg_count']} 条消息"
+                    f"  {s['total_tokens']} tokens"
+                    f"  {s['cwd']}[/dim]"
+                )
+        return True
+    if cmd.startswith("/load"):
+        parts = cmd.split(maxsplit=1)
+        if len(parts) < 2:
+            console.print("[dim]  用法：/load <session_id>[/dim]")
+            return True
+        sid = parts[1].strip()
+        try:
+            new_session = load_session(sid)
+            if session_box is not None:
+                session_box[0] = new_session
+                clear_result_cache()
+                console.print(f"[dim]  已恢复会话 {sid}（{len(new_session.messages)} 条消息）[/dim]")
+            else:
+                console.print("[dim]  /load 仅在 REPL 模式下可用[/dim]")
+        except Exception as e:
+            console.print(f"[bold red]加载失败[/bold red]  {e}")
         return True
     if cmd in ("/exit", "/quit"):
         console.print("[dim]Bye.[/dim]")
@@ -145,6 +198,9 @@ def repl(session: AgentSession, confirm_fn=None) -> None:
         border_style="blue",
     ))
 
+    # session_box 允许 /load 命令替换当前 session
+    session_box: list[AgentSession] = [session]
+
     # stop_event：Ctrl+C 时置位，通知 run_agent 中断当前任务
     stop_event = threading.Event()
     agent_running = False
@@ -155,22 +211,37 @@ def repl(session: AgentSession, confirm_fn=None) -> None:
             stop_event.set()
             console.print("\n[dim]正在中断...[/dim]")
         else:
-            console.print("\n[dim]Bye.[/dim]")
+            # 退出前自动保存非空会话
+            cur = session_box[0]
+            if cur.messages:
+                try:
+                    sid = save_session(cur)
+                    console.print(f"\n[dim]已自动保存会话 → {sid}[/dim]")
+                except Exception:
+                    pass
+            console.print("[dim]Bye.[/dim]")
             sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_sigint)
 
     while True:
+        cur = session_box[0]
         try:
             user_input = input("\n> ").strip()
         except EOFError:
+            if cur.messages:
+                try:
+                    sid = save_session(cur)
+                    console.print(f"\n[dim]已自动保存会话 → {sid}[/dim]")
+                except Exception:
+                    pass
             console.print("\n[dim]Bye.[/dim]")
             break
 
         if not user_input:
             continue
 
-        if handle_command(user_input, session):
+        if handle_command(user_input, cur, session_box=session_box):
             continue
 
         # 重置中断信号
@@ -183,7 +254,7 @@ def repl(session: AgentSession, confirm_fn=None) -> None:
 
         try:
             run_agent(
-                session=session,
+                session=session_box[0],
                 user_input=user_input,
                 stream=True,
                 on_text_chunk=printer.make_chunk_callback(),
@@ -197,7 +268,7 @@ def repl(session: AgentSession, confirm_fn=None) -> None:
             print_error(str(e))
         finally:
             agent_running = False
-            print_cost(session, time.time() - t0)
+            print_cost(session_box[0], time.time() - t0)
 
 # ── 单次执行模式 ────────────────────────────────────────────
 
@@ -246,10 +317,46 @@ def run_cli() -> None:
         action="store_true",
         help="跳过所有危险操作确认（谨慎使用）",
     )
+    parser.add_argument(
+        "--resume",
+        metavar="SESSION_ID",
+        help="恢复指定历史会话（ID 来自 /sessions 命令）",
+    )
+    parser.add_argument(
+        "--sessions",
+        action="store_true",
+        help="列出最近的历史会话后退出",
+    )
     args = parser.parse_args()
 
+    # --sessions 只列表不进 REPL
+    if args.sessions:
+        sessions = list_sessions(limit=20)
+        if not sessions:
+            console.print("[dim]暂无历史会话[/dim]")
+        else:
+            console.print(f"[dim]最近 {len(sessions)} 条会话（--resume <id> 可恢复）[/dim]\n")
+            for s in sessions:
+                console.print(
+                    f"  [cyan]{s['id']}[/cyan]"
+                    f"  [dim]{s['msg_count']} 条消息"
+                    f"  {s['total_tokens']} tokens"
+                    f"  {s['cwd']}[/dim]"
+                )
+        return
+
     confirm_fn = make_confirm_fn(yolo=args.yolo)
-    session = AgentSession(cwd=args.cwd)
+
+    # --resume 恢复历史会话
+    if args.resume:
+        try:
+            session = load_session(args.resume)
+            console.print(f"[dim]已恢复会话 {args.resume}（{len(session.messages)} 条消息）[/dim]")
+        except Exception as e:
+            console.print(f"[bold red]恢复失败[/bold red]  {e}")
+            sys.exit(1)
+    else:
+        session = AgentSession(cwd=args.cwd)
 
     if args.prompt:
         run_once(args.prompt, confirm_fn=confirm_fn)

@@ -112,11 +112,12 @@
 
 ### Step 9：会话持久化 + REPL 命令扩展
 
-- [ ] 9.1 会话持久化 — `src/session.py`，JSON 存取 + --resume
-- [ ] 9.2 REPL 命令扩展 — /clear、/cost、/help
-- [ ] 9.3 Ctrl+C 双级处理 + Token 展示 — signal 捕获 + 费用统计
+- [x] 9.1 会话持久化 — `src/session.py`，JSON 存取 + save/load/list/delete + 自动清理
+- [x] 9.2 REPL 命令扩展 — /save、/sessions、/load <id>、--resume、--sessions 参数
+- [x] 9.3 Ctrl+C 双级处理 + Token 展示优化 — 退出自动保存 + /cost 增量展示
+- [x] 9.4 仪表盘页面 — step9_session.py，历史浏览+JSON格式+命令速查+代码原理
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-9)
 
 ---
 
@@ -144,6 +145,7 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-17 | 9.1-9.4 会话持久化全套 | 完成 | session.py (JSON 存取+ID生成+自动清理)+CLI /save /sessions /load --resume --sessions+自动保存+仪表盘 step9_session.py，Step 9 封版 |
 | 2026-04-16 | 8.5 Lazy Expansion 分层缓冲 | 完成 | _LAST_RESULTS 模块缓存+read_tool_result 工具+_truncate_for_history，8 项单元测试通过，step-8 tag 重打 |
 | 2026-04-16 | 8.1-8.4 重试+压缩全套 | 完成 | retry.py+client集成+compact_context+/compact命令+仪表盘，Step 8 封版 |
 | 2026-04-16 | 7.1-7.4 流式输出全套 | 完成 | _collect_stream+StreamPrinter+on_text_chunk+cli改造+仪表盘，Step 7 封版 |
