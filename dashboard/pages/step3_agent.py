@@ -125,6 +125,7 @@ if user_input:
             run_agent(
                 session=session,
                 user_input=user_input,
+                stream=False,
                 on_text=on_text,
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,

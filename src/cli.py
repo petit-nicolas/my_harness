@@ -21,6 +21,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from src.agent import AgentSession, run_agent
+from src.ui import StreamPrinter, print_tool_call_rich, print_tool_result_rich
 
 console = Console()
 
@@ -30,16 +31,14 @@ def print_user(text: str) -> None:
     console.print(f"[bold blue]你[/bold blue]  {text}")
 
 def print_agent(text: str) -> None:
+    """非流式模式的完整回复打印（兼容 Streamlit 测试）"""
     console.print(f"\n[bold green]Harness[/bold green]  {text}\n")
 
 def print_tool_call(name: str, args: dict) -> None:
-    args_str = ", ".join(f"{k}={repr(v)[:40]}" for k, v in args.items())
-    console.print(f"  [yellow]⚙ {name}({args_str})[/yellow]")
+    print_tool_call_rich(console, name, args)
 
 def print_tool_result(name: str, result: str) -> None:
-    preview = result[:120].replace("\n", " ")
-    suffix = "..." if len(result) > 120 else ""
-    console.print(f"  [dim]↳ {preview}{suffix}[/dim]")
+    print_tool_result_rich(console, name, result)
 
 def print_error(text: str) -> None:
     console.print(f"[bold red]错误[/bold red]  {text}")
@@ -164,11 +163,16 @@ def repl(session: AgentSession, confirm_fn=None) -> None:
         agent_running = True
         t0 = time.time()
 
+        # 每轮对话创建一个新的流式打印器
+        printer = StreamPrinter(console, prefix="Harness")
+
         try:
             run_agent(
                 session=session,
                 user_input=user_input,
-                on_text=print_agent,
+                stream=True,
+                on_text_chunk=printer.make_chunk_callback(),
+                on_text=lambda _: printer.finish(),
                 on_tool_call=print_tool_call,
                 on_tool_result=print_tool_result,
                 confirm_fn=confirm_fn,
@@ -187,11 +191,14 @@ def run_once(prompt: str, confirm_fn=None) -> None:
     session = AgentSession()
     print_user(prompt)
     t0 = time.time()
+    printer = StreamPrinter(console, prefix="Harness")
     try:
         run_agent(
             session=session,
             user_input=prompt,
-            on_text=print_agent,
+            stream=True,
+            on_text_chunk=printer.make_chunk_callback(),
+            on_text=lambda _: printer.finish(),
             on_tool_call=print_tool_call,
             on_tool_result=print_tool_result,
             confirm_fn=confirm_fn,
