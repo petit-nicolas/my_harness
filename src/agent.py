@@ -24,8 +24,10 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from src.client import chat, DEFAULT_MODEL
+from src.hooks import HOOKS
 from src.permissions import PermissionCache, assess_tool_call
 from src.prompt import build_system_prompt
+from src.security import PolicyDecision, assess_policy
 from src.tools import TOOLS, cache_tool_result, run_tool
 
 # qwen-plus 上下文窗口（token），压缩阈值 = 80%
@@ -419,12 +421,45 @@ def run_agent(
                 if on_tool_call:
                     on_tool_call(name, arguments)
 
-                # 安全检查
-                if confirm_fn is not None:
+                # ── Pre-hook（日志、审计、自定义拦截）────────
+                hook_allowed, hook_reason = HOOKS.run_pre(name, arguments)
+                if not hook_allowed:
+                    result = "[已跳过：Hook 阻止执行 " + name + "（" + hook_reason + "）]"
+                    if on_tool_result:
+                        on_tool_result(name, result)
+                    session.add_tool_result(tc["id"], result)
+                    full_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result,
+                    })
+                    continue
+
+                # ── Policy 层（settings.json 规则）────────────
+                policy = assess_policy(name, arguments)
+                if policy.decision == PolicyDecision.BLOCK:
+                    result = "[已拦截：策略禁止 " + name + "（" + policy.reason + "）]"
+                    if on_tool_result:
+                        on_tool_result(name, result)
+                    session.add_tool_result(tc["id"], result)
+                    full_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": result,
+                    })
+                    continue
+
+                # ── permissions.py 层（仅在非 ALLOW 时检查）──
+                skip_builtin_check = policy.decision == PolicyDecision.ALLOW
+                if not skip_builtin_check and confirm_fn is not None:
                     risk = assess_tool_call(name, arguments, session.perm_cache)
                     if risk.is_risky:
-                        allowed = confirm_fn(name, risk.reason, arguments)
-                        if allowed:
+                        if policy.decision == PolicyDecision.CONFIRM:
+                            # always_confirm 规则强制走确认
+                            forced = confirm_fn(name, policy.reason, arguments)
+                        else:
+                            forced = confirm_fn(name, risk.reason, arguments)
+                        if forced:
                             target = arguments.get("command") or arguments.get("path", "")
                             session.perm_cache.approve(name, target)
                         else:
@@ -440,6 +475,9 @@ def run_agent(
                             continue
 
                 result = run_tool(name, arguments)
+
+                # ── Post-hook（结果日志、转换）────────────────
+                result = HOOKS.run_post(name, arguments, result)
 
                 if on_tool_result:
                     on_tool_result(name, result)   # UI 看完整结果

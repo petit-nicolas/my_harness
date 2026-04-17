@@ -21,6 +21,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from src.agent import AgentSession, run_agent, compact_context, estimate_tokens
+from src.hooks import HOOKS, register_defaults, get_session_stats, reset_session_stats, audit_log_path
 from src.memory import (
     add_memory, delete_memory, load_memories, search_memories,
     format_for_prompt, ALL_CATEGORIES, CATEGORY_DESC, memory_file_path,
@@ -103,6 +104,7 @@ COMMANDS = {
     "/memories [query]":  "浏览或搜索记忆库",
     "/forget <id>":       "删除指定记忆（id 来自 /memories）",
     "/extract":           "让 LLM 从当前对话中自动提取记忆",
+    "/stats":             "显示本次会话工具调用统计",
     "/exit":              "退出 Harness",
 }
 
@@ -121,7 +123,8 @@ def handle_command(cmd: str, session: AgentSession, session_box: list | None = N
     if cmd == "/clear":
         session.messages.clear()
         clear_result_cache()
-        console.print("[dim]对话历史 + 工具结果缓存已清空[/dim]")
+        reset_session_stats()
+        console.print("[dim]对话历史 + 工具结果缓存 + 调用统计已清空[/dim]")
         return True
     if cmd == "/cost":
         u = session.usage
@@ -252,6 +255,19 @@ def handle_command(cmd: str, session: AgentSession, session_box: list | None = N
             console.print("[dim]  当前对话为空，无法提取[/dim]")
             return True
         _extract_memories_from_session(session)
+        return True
+
+    if cmd == "/stats":
+        stats = get_session_stats()
+        if not stats:
+            console.print("[dim]  本次会话暂无工具调用记录[/dim]")
+        else:
+            total = sum(stats.values())
+            console.print(f"\n  [bold]工具调用统计[/bold]（本次会话共 {total} 次）\n")
+            for tool, count in sorted(stats.items(), key=lambda x: -x[1]):
+                bar = "█" * min(count, 30)
+                console.print(f"  [cyan]{tool:<20}[/cyan] {bar} {count}")
+            console.print(f"\n  [dim]审计日志：{audit_log_path()}[/dim]\n")
         return True
 
     if cmd in ("/exit", "/quit"):
@@ -428,6 +444,9 @@ def _extract_memories_from_session(session: AgentSession) -> None:
 # ── 入口 ────────────────────────────────────────────────────
 
 def run_cli() -> None:
+    # 注册内置 hooks（审计日志 + 统计计数）
+    register_defaults()
+
     parser = argparse.ArgumentParser(
         prog="harness",
         description="Harness — 极简 Coding Agent",

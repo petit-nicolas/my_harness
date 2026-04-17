@@ -135,11 +135,12 @@
 
 ### Step 11：高级安全防护 + Hooks 扩展机制
 
-- [ ] 11.1 Shell 安全加固 + 敏感文件保护 — `src/security.py`
-- [ ] 11.2 Hooks 机制 — `src/hooks.py`，pre/post_tool_use
-- [ ] 11.3 规则化权限 — settings.json + 路径匹配
+- [x] 11.1 Shell 安全加固 — `src/security.py`，settings.json 白/黑名单 + glob 匹配 + 可信路径
+- [x] 11.2 Hooks 机制 — `src/hooks.py`，HookRegistry + pre/post 装饰器 + audit.log 内置钩子
+- [x] 11.3 规则化权限集成 — agent.py 三层架构（Hooks → Policy → permissions），/stats 命令
+- [x] 11.4 仪表盘页面 — step11_hooks.py，Hooks 演示+settings 编辑器+三层架构+审计日志
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-11)
 
 ---
 
@@ -147,6 +148,7 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-17 | 11.1-11.4 高级安全+Hooks 全套 | 完成 | hooks.py (HookRegistry+内置审计钩子)+security.py (settings.json Policy三层架构)+agent.py 集成+/stats 命令+仪表盘，Step 11 封版 |
 | 2026-04-17 | 10.1-10.5 记忆系统全套 | 完成 | memory.py (MemoryEntry+MEMORY.md四分类)+/remember /memories /forget /extract命令+LLM自动提取+{{memories}}注入prompt+仪表盘，Step 10 封版 |
 | 2026-04-17 | 9.1-9.4 会话持久化全套 | 完成 | session.py (JSON 存取+ID生成+自动清理)+CLI /save /sessions /load --resume --sessions+自动保存+仪表盘 step9_session.py，Step 9 封版 |
 | 2026-04-16 | 8.5 Lazy Expansion 分层缓冲 | 完成 | _LAST_RESULTS 模块缓存+read_tool_result 工具+_truncate_for_history，8 项单元测试通过，step-8 tag 重打 |
