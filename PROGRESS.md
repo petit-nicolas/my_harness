@@ -123,11 +123,13 @@
 
 ### Step 10：记忆系统
 
-- [ ] 10.1 记忆存储与索引 — `src/memory.py`，MEMORY.md 索引机制
-- [ ] 10.2 记忆分类与检索 — user/feedback/project/reference 四类
-- [ ] 10.3 /remember 命令 + 自动记忆 — 主动记录 + 对话后提取
+- [x] 10.1 记忆存储与索引 — `src/memory.py`，MemoryEntry + MEMORY.md 四分类文件读写
+- [x] 10.2 记忆分类与检索 — user/feedback/project/reference 四类 + 关键词搜索
+- [x] 10.3 /remember /memories /forget /extract 命令 — 主动记录 + LLM 对话提取
+- [x] 10.4 记忆注入 system prompt — {{memories}} 占位符 + prompt.py load_memories_context
+- [x] 10.5 仪表盘页面 — step10_memory.py，记忆库管理+分类说明+Prompt注入演示+代码原理
 
-**封版标记**：未封版
+**封版标记**：已封版 (tag: step-10)
 
 ---
 
@@ -145,6 +147,7 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-17 | 10.1-10.5 记忆系统全套 | 完成 | memory.py (MemoryEntry+MEMORY.md四分类)+/remember /memories /forget /extract命令+LLM自动提取+{{memories}}注入prompt+仪表盘，Step 10 封版 |
 | 2026-04-17 | 9.1-9.4 会话持久化全套 | 完成 | session.py (JSON 存取+ID生成+自动清理)+CLI /save /sessions /load --resume --sessions+自动保存+仪表盘 step9_session.py，Step 9 封版 |
 | 2026-04-16 | 8.5 Lazy Expansion 分层缓冲 | 完成 | _LAST_RESULTS 模块缓存+read_tool_result 工具+_truncate_for_history，8 项单元测试通过，step-8 tag 重打 |
 | 2026-04-16 | 8.1-8.4 重试+压缩全套 | 完成 | retry.py+client集成+compact_context+/compact命令+仪表盘，Step 8 封版 |

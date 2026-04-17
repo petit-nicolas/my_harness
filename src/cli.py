@@ -21,6 +21,10 @@ from rich.panel import Panel
 from rich.text import Text
 
 from src.agent import AgentSession, run_agent, compact_context, estimate_tokens
+from src.memory import (
+    add_memory, delete_memory, load_memories, search_memories,
+    format_for_prompt, ALL_CATEGORIES, CATEGORY_DESC, memory_file_path,
+)
 from src.session import save_session, load_session, list_sessions, delete_session, sessions_dir
 from src.tools import clear_result_cache
 from src.ui import StreamPrinter, print_tool_call_rich, print_tool_result_rich
@@ -88,14 +92,18 @@ def make_confirm_fn(yolo: bool):
 # ── 内置命令 ────────────────────────────────────────────────
 
 COMMANDS = {
-    "/help":     "显示所有可用命令",
-    "/clear":    "清空当前对话历史",
-    "/cost":     "显示本次会话 Token 用量",
-    "/compact":  "压缩对话历史（保留最近 6 条，其余用摘要替换）",
-    "/save":     "保存当前会话到磁盘",
-    "/sessions": "列出最近保存的历史会话",
-    "/load <id>":"恢复指定会话（id 来自 /sessions）",
-    "/exit":     "退出 Harness",
+    "/help":              "显示所有可用命令",
+    "/clear":             "清空当前对话历史",
+    "/cost":              "显示本次会话 Token 用量",
+    "/compact":           "压缩对话历史（保留最近 6 条，其余用摘要替换）",
+    "/save":              "保存当前会话到磁盘",
+    "/sessions":          "列出最近保存的历史会话",
+    "/load <id>":         "恢复指定会话（id 来自 /sessions）",
+    "/remember [cat] <text>": "记住一条信息（cat: user/feedback/project/reference）",
+    "/memories [query]":  "浏览或搜索记忆库",
+    "/forget <id>":       "删除指定记忆（id 来自 /memories）",
+    "/extract":           "让 LLM 从当前对话中自动提取记忆",
+    "/exit":              "退出 Harness",
 }
 
 def handle_command(cmd: str, session: AgentSession, session_box: list | None = None) -> bool:
@@ -181,6 +189,71 @@ def handle_command(cmd: str, session: AgentSession, session_box: list | None = N
         except Exception as e:
             console.print(f"[bold red]加载失败[/bold red]  {e}")
         return True
+    # ── 记忆系统命令 ─────────────────────────────────────────
+    if cmd.startswith("/remember"):
+        parts = cmd.split(maxsplit=2)
+        # /remember <text>  或  /remember <category> <text>
+        if len(parts) < 2:
+            console.print("[dim]  用法：/remember [user|feedback|project|reference] <内容>[/dim]")
+            return True
+        # 判断第一个参数是否是分类名
+        if len(parts) >= 3 and parts[1] in ALL_CATEGORIES:
+            cat, content = parts[1], parts[2]
+        else:
+            cat = "user"
+            content = " ".join(parts[1:])
+        # 简单提取行内 #tag
+        import re as _re
+        tags = _re.findall(r"#(\w+)", content)
+        content_clean = _re.sub(r"\s*#\w+", "", content).strip()
+        try:
+            entry = add_memory(content_clean, category=cat, tags=tags)
+            console.print(
+                f"[dim]  记忆已保存[/dim]  [{cat}] [id:{entry.id}] {content_clean}"
+            )
+        except Exception as e:
+            console.print(f"[bold red]保存失败[/bold red]  {e}")
+        return True
+
+    if cmd.startswith("/memories"):
+        parts = cmd.split(maxsplit=1)
+        query = parts[1].strip() if len(parts) > 1 else ""
+        memories = search_memories(query) if query else load_memories()
+        if not memories:
+            hint = f"无匹配 {query!r}" if query else "记忆库为空，用 /remember 添加"
+            console.print(f"[dim]  {hint}[/dim]")
+            console.print(f"[dim]  文件：{memory_file_path()}[/dim]")
+        else:
+            console.print(f"[dim]  {len(memories)} 条记忆（/forget <id> 删除）[/dim]")
+            for cat in ALL_CATEGORIES:
+                cat_entries = [e for e in memories if e.category == cat]
+                if not cat_entries:
+                    continue
+                console.print(f"  [bold cyan]{cat}[/bold cyan]  [dim]{CATEGORY_DESC[cat]}[/dim]")
+                for e in cat_entries:
+                    tag_str = "  " + " ".join(f"#{ t}" for t in e.tags) if e.tags else ""
+                    console.print(f"    [dim][id:{e.id}][/dim] {e.content}{tag_str}")
+        return True
+
+    if cmd.startswith("/forget"):
+        parts = cmd.split(maxsplit=1)
+        if len(parts) < 2:
+            console.print("[dim]  用法：/forget <memory_id>[/dim]")
+            return True
+        mid = parts[1].strip()
+        if delete_memory(mid):
+            console.print(f"[dim]  已删除记忆 {mid}[/dim]")
+        else:
+            console.print(f"[bold red]未找到[/bold red]  id={mid}")
+        return True
+
+    if cmd == "/extract":
+        if not session.messages:
+            console.print("[dim]  当前对话为空，无法提取[/dim]")
+            return True
+        _extract_memories_from_session(session)
+        return True
+
     if cmd in ("/exit", "/quit"):
         console.print("[dim]Bye.[/dim]")
         sys.exit(0)
@@ -293,6 +366,64 @@ def run_once(prompt: str, confirm_fn=None) -> None:
         print_error(str(e))
         sys.exit(1)
     print_cost(session, time.time() - t0)
+
+# ── LLM 自动记忆提取 ─────────────────────────────────────────
+
+def _extract_memories_from_session(session: AgentSession) -> None:
+    """
+    让 LLM 从当前对话中提取值得记住的事实，写入记忆库。
+    通过 /extract 命令触发，不会自动调用（避免额外 API 消耗）。
+    """
+    from src.client import chat
+
+    # 构造提取提示
+    history_text = "\n".join(
+        f"[{m['role']}] {str(m.get('content', ''))[:500]}"
+        for m in session.messages[-20:]   # 只看最近 20 条
+        if m["role"] in ("user", "assistant")
+    )
+    if not history_text.strip():
+        console.print("[dim]  没有可分析的对话内容[/dim]")
+        return
+
+    extract_prompt = (
+        "从以下对话中提取值得长期记住的事实，格式：\n"
+        "每行一条，格式：[category] <内容>（可附 #tag）\n"
+        "category 只能是：user / feedback / project / reference\n"
+        "只提取有明确信息量的条目，无关紧要的细节忽略。\n"
+        "如果没有值得记忆的内容，回复：无\n\n"
+        f"=== 对话内容 ===\n{history_text}\n=== 结束 ===\n"
+    )
+
+    msgs = [{"role": "user", "content": extract_prompt}]
+    with console.status("[dim]正在从对话中提取记忆...[/dim]", spinner="dots"):
+        resp = chat(msgs, stream=False)
+
+    text = (resp.choices[0].message.content or "").strip()
+    if not text or text.strip() == "无":
+        console.print("[dim]  未发现值得记忆的内容[/dim]")
+        return
+
+    import re as _re
+    saved = 0
+    for line in text.splitlines():
+        line = line.strip().lstrip("-•* ")
+        m = _re.match(r"\[(user|feedback|project|reference)\]\s+(.+)", line)
+        if not m:
+            continue
+        cat, content = m.group(1), m.group(2).strip()
+        tags = _re.findall(r"#(\w+)", content)
+        content_clean = _re.sub(r"\s*#\w+", "", content).strip()
+        if content_clean:
+            entry = add_memory(content_clean, category=cat, tags=tags, source="auto")
+            console.print(f"[dim]  → [{cat}] [id:{entry.id}] {content_clean}[/dim]")
+            saved += 1
+
+    if saved:
+        console.print(f"[dim]  共提取 {saved} 条记忆并保存[/dim]")
+    else:
+        console.print("[dim]  未能解析出有效记忆条目[/dim]")
+
 
 # ── 入口 ────────────────────────────────────────────────────
 

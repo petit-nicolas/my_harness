@@ -70,6 +70,20 @@ def load_claude_md(start_dir: str | None = None) -> str:
     return ""
 
 
+def load_memories_context() -> str:
+    """
+    读取 ~/.harness/memory/MEMORY.md 中的所有记忆，
+    格式化为可注入 system prompt 的文本块。
+    记忆库为空时返回空字符串。
+    """
+    try:
+        from src.memory import load_memories, format_for_prompt
+        entries = load_memories()
+        return format_for_prompt(entries)
+    except Exception:
+        return ""
+
+
 def build_system_prompt(cwd: str | None = None) -> str:
     """
     读取 system_prompt.md 模板，将所有占位符替换为实际值，
@@ -80,6 +94,7 @@ def build_system_prompt(cwd: str | None = None) -> str:
     current_dir = cwd or os.getcwd()
     git_ctx = get_git_context(current_dir)   # 与 cwd 保持一致，读目标项目
     claude_md = load_claude_md(current_dir)
+    memories = load_memories_context()
 
     replacements = {
         "{{cwd}}":         current_dir,
@@ -87,6 +102,7 @@ def build_system_prompt(cwd: str | None = None) -> str:
         "{{platform}}":    platform.system(),
         "{{shell}}":       os.environ.get("SHELL", "unknown"),
         "{{git_context}}": git_ctx,
+        "{{memories}}":    memories,
         "{{claude_md}}":   claude_md,
     }
 

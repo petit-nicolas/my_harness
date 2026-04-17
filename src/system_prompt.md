@@ -54,4 +54,6 @@
 
 {{git_context}}
 
+{{memories}}
+
 {{claude_md}}
