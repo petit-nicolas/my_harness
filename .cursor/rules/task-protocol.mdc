@@ -53,3 +53,22 @@ alwaysApply: true
 - 变更日志按时间倒序排列（最新的在最上面）
 - 日志内容简明扼要，一行说清"做了什么"
 - 遇到重要设计决策时，在日志备注列记录决策理由
+
+## 垂直子项目（vertical-industry 分支）
+
+`vertical-industry` 分支承载物理教学 Agent 子项目，**使用独立的计划与日志**，与 Harness 主线完全解耦：
+
+| 主线文件 | 物理子项目对应文件 |
+|----------|-------------------|
+| `PLAN.md` | `PHY_PLAN.md` |
+| `PROGRESS.md` | `PHY_PROGRESS.md` |
+| tag 前缀 `step-N` | tag 前缀 `phy-vN` |
+| 子任务编号 `X.Y` | 子任务编号 `VN.M` |
+
+在 `vertical-industry` 分支工作时：
+
+1. 对话启动读的是 `PHY_PROGRESS.md`（不是 `PROGRESS.md`）
+2. 子任务编号使用 `V1.1`、`V2.3` 等格式（阶段 `VN` + 子任务序号 `M`）
+3. 每完成一个 `VN` 阶段全部子任务后打 `phy-vN` tag
+4. **禁止在 vertical-industry 分支改动主线文件** `PLAN.md` / `PROGRESS.md` / `src/` 主线模块
+5. 物理子项目专属规则见 `.cursor/rules/physics-project.mdc`

@@ -446,6 +446,41 @@ Ali_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 ---
 
+## Vertical-Industry 分支：物理教学 Agent
+
+在 `vertical-industry` 分支上，我们在 Harness 主线（`step-11` 封版）之上构建**物理教学 Agent**（高中物理主干 + 竞赛进阶），作为"通用 Agent 框架 × 垂直行业"的示范。
+
+### 三大支柱
+
+| 支柱 | 目标 | 实现手段 |
+|------|------|----------|
+| **Physics Wiki** | LLM 自维护的稳定物理知识图谱 | Markdown + frontmatter + 双向链接（LLM Wiki 模式） |
+| **Student Map** | 个人化任督二脉图谱 | JSON，节点 id 与 wiki 对齐，`post_tool_use` hook 自动评估 |
+| **Interactive Demo** | vibe coding 的即时交互演示 | HTML5 + matter.js / p5.js + Plotly |
+
+### 分步封版（V1 - V7）
+
+| Tag | 主题 |
+|-----|------|
+| `phy-v0` | Phase 0 治理基础设施（规则 + 计划 + 日志 + 骨架）|
+| `phy-v1` | Wiki 基础设施（schema + 四工具 + 浏览页）|
+| `phy-v2` | Ingest 流水线 + Lint + 人教版骨架 |
+| `phy-v3` | 顶级教师 Persona + 教学策略库 |
+| `phy-v4` | Student Map + 自动评估 hook |
+| `phy-v5` | HTML5 交互演示 + Plotly 场/函数可视化 |
+| `phy-v6` | 自适应练习题系统 + 错题本 |
+| `phy-v7` | 学习报告 + 仪表盘收束 |
+
+切换分支体验：
+
+```bash
+git checkout vertical-industry
+```
+
+完整计划见 [PHY_PLAN.md](PHY_PLAN.md)（需切换到 `vertical-industry` 分支），实时进度见 [PHY_PROGRESS.md](PHY_PROGRESS.md)。
+
+---
+
 ## License
 
 MIT

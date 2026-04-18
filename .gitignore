@@ -14,6 +14,10 @@ env/
 # 会话与记忆数据
 .harness/
 
+# 物理子项目学生档案（不入库，见 physics-project.mdc）
+res/phy/students/
+res/phy/renders/
+
 # Streamlit 缓存
 .streamlit/
 

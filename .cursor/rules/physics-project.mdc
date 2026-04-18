@@ -1,0 +1,99 @@
+---
+description: 物理教学 Agent 子项目专属规则（vertical-industry 分支）
+globs:
+  - "res/phy/**"
+  - "src/phy/**"
+  - "dashboard/pages/phy_*.py"
+  - "PHY_PLAN.md"
+  - "PHY_PROGRESS.md"
+alwaysApply: false
+---
+
+# 物理教学 Agent 规则
+
+本规则仅对 `vertical-industry` 分支上的物理子项目生效。任何涉及 `res/phy/`、`src/phy/`、`dashboard/pages/phy_*.py`、`PHY_PLAN.md`、`PHY_PROGRESS.md` 的改动都必须遵守。
+
+## 子项目定位
+
+在 Harness 通用 Agent 框架之上，构建**顶级高中物理教师**（覆盖高中主干 + 竞赛进阶）风格的交互式学习 Agent。三大支柱：
+
+1. **Physics Wiki**：LLM 自维护的结构化物理知识图谱（权威层）
+2. **Student Map**：同构的学生个人知识图谱（追踪层）
+3. **交互演示**：HTML5 + 物理引擎驱动的 vibe coding 演示（理解层）
+
+## 知识严谨性（硬约束）
+
+- **单位**：一律使用 SI 制，出现非 SI（cgs、eV、光年等）必须注明换算关系
+- **矢量 / 标量**：矢量用粗体 `\mathbf{F}` 或箭头 `\vec{F}`，标量保持正体；作图时标明方向
+- **公式**：使用 LaTeX 表达，行内 `\( ... \)`，块级 `\[ ... \]`；首次出现每个符号时必须定义
+- **近似与适用域**：任何近似公式（如小角度摆、理想气体、非相对论）必须在附近显式标注适用条件
+- **数量级**：给出数值结论时保留有效数字，避免伪精度
+- **历史与 convention**：遇到多种约定（如电流方向、熵符号）时，标明采用哪种并保持全文一致
+
+## Wiki 写作风格
+
+`res/phy/wiki/` 下每个 `.md` 页面必须遵守：
+
+**frontmatter（必填字段）**：
+
+```yaml
+---
+id: mechanics/newton-second-law        # 唯一 id，与文件路径对齐
+title: 牛顿第二定律
+level: basic                            # basic | advanced | competition
+prerequisites: [mechanics/force, mechanics/mass]
+sources: [raw/pep-textbook-v1/ch3.md]   # 溯源到 raw/
+updated: 2026-04-15
+---
+```
+
+**正文**：
+
+- 概念定义 → 数学表述 → 适用条件 → 典型例题 → 常见误区 → 相关演示
+- 双向链接写作 `[[mechanics/force]]`，由 `wiki_index` 工具维护反向索引
+- 所有断言必须能追溯到 `sources` 中某一条
+
+**log.md 追加格式**：
+
+```
+## 2026-04-15 | mechanics/newton-second-law | update
+- 修正：将 "F=ma 始终成立" 修正为 "非相对论近似下成立"
+- 原因：对齐 raw/pep-textbook-v1/ch3.md §3.2
+```
+
+## 教师人格边界
+
+Agent 默认作为**苏格拉底式引导者**：
+
+- **不直接给答案**，先提问确认学生已知条件与卡点
+- **鼓励推导**：让学生说出思路 → 指出卡点 → 给最小提示 → 再让学生继续
+- **鼓励类比**（`teach_analogy`）和从极限情形反推（`teach_misconception`）
+- **承认不确定**：遇到和权威 wiki 冲突时，立即以 wiki 为准并说明原因，同时追加 `log.md`
+- **竞赛模式下**可直接给严密推导，但仍须在关键步骤暂停等待学生跟进
+
+禁止行为：
+
+- 不得绕开物理原理直接套公式得出数值答案
+- 不得在学生表达未完成前就否定
+- 不得声称"我不知道"而不查 wiki；必须先调用 `wiki_search`
+
+## 物理错误处理流程
+
+当 Agent 输出与权威资料（`res/phy/wiki/` 或 `res/phy/raw/`）冲突时：
+
+1. **立即承认**：明确指出原输出错误点
+2. **更新 wiki**：调用 `wiki_write` 修正对应条目
+3. **追加 log**：在 `res/phy/wiki/log.md` 记录修正事件（引用 + 原因）
+4. **回溯影响**：检查最近会话中是否基于错误知识给出过学生评估，必要时在 StudentMap 回撤
+
+## 学生数据边界
+
+- `res/phy/students/` 下的学生档案**不得提交到 git**（`.gitignore` 排除）
+- 不得在 wiki 或 raw 中出现任何学生个人信息
+- StudentMap 节点 id 必须与 Wiki 节点 id 严格对齐（同名不同义禁止）
+
+## 与 Harness 主线的边界
+
+- **不修改** `src/agent.py` / `src/prompt.py` 等主线代码，除非通过 `--mode physics` 等注入点扩展
+- 物理专属工具只挂载在 `src/phy/`，通过工具注册机制接入
+- 物理相关提示词走 `src/phy/physics_prompt.md`，由 prompt 层根据模式切换
