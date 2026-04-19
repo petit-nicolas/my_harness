@@ -7,6 +7,20 @@
 
 ---
 
+## 架构血统：Builder / Runner 二分
+
+物理子项目存在两个智能体角色，**血统不可混淆**，对应工程上典型的 build-time / runtime 分离：
+
+| 角色 | 模型 | 类比 | 场景 | wiki 权限 |
+|------|------|------|------|-----------|
+| **Builder** | Cursor Agent（Claude） | 教研组 / 编辑 | 开发对话、知识库扩充 | 读写 |
+| **Runner** | Harness Agent（qwen-plus） | 课堂老师 | 学生使用 CLI / 仪表盘 | **只读 + 写 feedback** |
+
+设计意图：
+- Wiki 是"作品"，由 Cursor + 工具脚本构建（一次性高质量投入）
+- Harness 只读这个作品（高频低成本响应）
+- Runner 通过 **Feedback Loop** 把"看到的问题"传给 Builder，Cursor 审核后修订（详见后文）
+
 ## 设计哲学
 
 三个核心支柱 + 一个治理机制：
@@ -125,6 +139,10 @@ harness/ (vertical-industry 分支)
 │   │   ├── overview.md            # 知识库覆盖度与待补区域概览
 │   │   ├── sources/               # 每次 ingest 的章节摘要页（桥接 raw 与 wiki）
 │   │   │   └── pep-v1-ch3.md      # 例：人教版必修一第三章摘要
+│   │   ├── feedback/              # Runner→Builder 反馈队列（V3 引入）
+│   │   │   ├── inbox/             # 待处理（runner append-only）
+│   │   │   ├── processed/         # 已接受并修订
+│   │   │   └── rejected/          # 拒绝（带理由）
 │   │   ├── mechanics/*.md         # 学科分类的概念/原理/题型页
 │   │   ├── electromagnetism/*.md
 │   │   ├── thermodynamics/*.md
@@ -152,19 +170,21 @@ harness/ (vertical-industry 分支)
 ├── src/phy/
 │   ├── __init__.py
 │   ├── wiki.py                    # V1 Wiki CRUD（4 工具）
-│   ├── ingest.py                  # V2 8 步 ingest 工作流编排
-│   ├── strategies.py              # V3 教学策略工具
+│   ├── ingest.py                  # V2 8 步 ingest 工作流编排（builder 工具）
+│   ├── feedback.py                # V3 feedback_submit (runner) + resolve/reject (builder)
+│   ├── strategies.py              # V3 教学策略工具（runner）
 │   ├── physics_prompt.md          # V3 顶级教师人格提示词
-│   ├── student.py                 # V4 Student Map
-│   ├── render.py                  # V5 Demo/Plot 渲染
-│   ├── quiz.py                    # V6 练习题系统
+│   ├── student.py                 # V4 Student Map（runner）
+│   ├── render.py                  # V5 Demo/Plot 渲染（runner）
+│   ├── quiz.py                    # V6 练习题系统（runner）
 │   ├── tools/
-│   │   └── mineru.py              # V1 MinerU 解析工具（移植 + 物理特化）
+│   │   └── mineru.py              # V1 MinerU 解析工具（builder, CLI）
 │   └── reviewers/                 # 配置化的虚拟教师角色
-│       ├── physics_teacher_reviewer.md   # V2 引入（拆分粒度评审）
-│       ├── assessment_reviewer.md        # V4 引入
-│       ├── quiz_quality_reviewer.md      # V6 引入
-│       └── report_reviewer.md            # V7 引入
+│       ├── physics_teacher_reviewer.md   # V2（cursor）拆分粒度评审
+│       ├── feedback_reviewer.md          # V3（cursor）反馈审核
+│       ├── assessment_reviewer.md        # V4（harness）学生评估
+│       ├── quiz_quality_reviewer.md      # V6（harness）题目审核
+│       └── report_reviewer.md            # V7（harness）报告把关
 └── dashboard/pages/
     ├── phy_1_wiki.py              # Wiki 浏览 + log 状态可视化
     ├── phy_2_student_map.py       # 学生图谱 (pyvis)
@@ -221,17 +241,25 @@ harness/ (vertical-industry 分支)
   - `wiki_lint` 全绿
 - 依赖：V1
 
-### V3 — 教师 Persona + 教学策略
+### V3 — 教师 Persona + 教学策略 + Feedback Loop 接入
 
-**目标**：让 Agent 穿上"顶级物理老师"的皮，具备可调用的教学策略。
+**目标**：让 Agent 穿上"顶级物理老师"的皮，具备可调用的教学策略；同时建立 Runner → Builder 的反馈通道。
 
-- 产出：`src/phy/physics_prompt.md`（人格 + 教学原则 + wiki 使用守则）
-- 产出：三个策略工具
-  - `teach_analogy`（类比讲解，如"电流像水流"）
-  - `teach_derivation`（严密推导，适用于竞赛）
-  - `teach_misconception`（直击典型误区，如"惯性是力"）
-- 产出：`src/prompt.py` 扩展 `--mode physics` 分支（不污染主线）
-- 验收：CLI `harness --mode physics` 启动后，问答默认走苏格拉底式引导
+- 产出（教师与策略）：
+  - `src/phy/physics_prompt.md`（人格 + 教学原则 + wiki 使用守则）
+  - 三个策略工具：`teach_analogy` / `teach_derivation` / `teach_misconception`
+  - `src/prompt.py` 扩展 `--mode physics` 分支（不污染主线）
+- 产出（Feedback Loop 最小可用版）：
+  - `src/phy/feedback.py`：runner 端 `feedback_submit` 工具 + builder 端 `feedback_resolve` / `feedback_reject` 工具
+  - `src/phy/reviewers/feedback_reviewer.md`（Cursor 充当，输出 accept/reject/needs_more_info）
+  - `res/phy/wiki/feedback/{inbox,processed,rejected}/` 目录骨架 + README
+  - `src.security` policy 加 file rule：runner 只能 `O_CREAT | O_EXCL` 写 inbox/，无法改 processed/rejected
+  - 教学结束 hook（post-session）自动扫一遍对话，判断是否值得 submit
+  - Cursor build session 启动协议：扫 inbox 报告未处理数量
+- 验收：
+  - CLI `harness --mode physics` 启动后，问答默认走苏格拉底式引导
+  - 学生说"这里讲错了" → runner 调用 feedback_submit → inbox/ 出现新 ticket
+  - 模拟一个 ticket，Cursor 用 feedback_reviewer 评估并执行 accept 流程，wiki 修订成功
 - 依赖：V1、V2
 
 ### V4 — 学生知识图谱
@@ -256,16 +284,20 @@ harness/ (vertical-industry 分支)
 - 验收：讲"斜抛"时 Agent 能生成可拖动初速度向量的 demo
 - 依赖：V1、V3
 
-### V6 — 自适应练习题
+### V6 — 自适应练习题 + 数据信号触发反馈
 
-**目标**：依 wiki 保正确、依 Student Map 定难度，错题自动归档。
+**目标**：依 wiki 保正确、依 Student Map 定难度，错题自动归档；同时让 quiz 数据成为 Feedback Loop 的第三种触发源。
 
 - 产出：`quiz_generate`（基于 wiki + 学生弱点定向，生成题目 + 标准解答）
 - 产出：`quiz_evaluate`（判分 + 错因分析 + 更新 StudentMap）
 - 产出：错题本（双向链接到 wiki 和 student 节点）
 - 产出：IRT-lite 难度调节（三参数简化版，按正确率动态选题）
-- 验收：学生连错两题后，下一题自动降难度并聚焦前置知识
-- 依赖：V1、V4
+- 产出（Feedback 自动信号）：
+  - `post_tool_use` hook 监测 quiz_evaluate 信号：同 wiki 节点 N 名学生连错率 > 阈值 → 自动调用 `feedback_submit(kind=unclear|error)`
+  - IRT 难度估计偏离 wiki `level` 字段时也自动 submit
+  - 自动提交去重：同 target + 24 小时内 + 同 kind 不重复
+- 验收：学生连错两题后，下一题自动降难度并聚焦前置知识；模拟 5 名学生在同节点连错，inbox 出现去重后的 1 条 feedback
+- 依赖：V1、V4、V3 的 Feedback Loop
 
 ### V7 — 学习报告与仪表盘收束
 
@@ -281,14 +313,45 @@ harness/ (vertical-industry 分支)
 
 ## Reviewer Persona 演进路线（横切 V2-V7）
 
-| Reviewer | 引入版本 | 评审场景 | 输出契约要点 |
-|----------|----------|----------|--------------|
-| `physics_teacher_reviewer` | V2 | ingest 步骤 4 拆分粒度 | 给出 splits 列表 + user_guidance + confidence |
-| `assessment_reviewer` | V4 | 学生掌握度评估校对 | 修正 mastery 估值 + 标注异常 + reasons |
-| `quiz_quality_reviewer` | V6 | 题目难度/科学性/教学价值 | 接受 / 重写 / 拒绝 + 修改建议 |
-| `report_reviewer` | V7 | 学习报告语气与内容把关 | 内容裁剪建议 + 鼓励性语句润色 |
+| Reviewer | 引入版本 | executor | 评审场景 | 输出契约要点 |
+|----------|----------|----------|----------|--------------|
+| `physics_teacher_reviewer` | V2 | **cursor** | ingest 步骤 4 拆分粒度 | 给出 splits 列表 + user_guidance + confidence |
+| `feedback_reviewer` | V3 | **cursor** | Feedback Loop 反馈审核 | accept / reject / needs_more_info + reasoning |
+| `assessment_reviewer` | V4 | harness | 学生掌握度评估校对 | 修正 mastery 估值 + 标注异常 + reasons |
+| `quiz_quality_reviewer` | V6 | harness | 题目难度/科学性/教学价值 | 接受 / 重写 / 拒绝 + 修改建议 |
+| `report_reviewer` | V7 | harness | 学习报告语气与内容把关 | 内容裁剪建议 + 鼓励性语句润色 |
+
+**executor 区分原则**：
+- Build-time 触发（Cursor 在场）→ `executor: cursor`：质量最高、零额外成本、用户可即时质疑
+- Runtime 触发（学生在场，Cursor 不在）→ `executor: harness`：保持 runtime 闭环
 
 所有 Reviewer 都遵循 `.cursor/rules/physics-project.mdc` 的统一调用约定，便于真人通过仪表盘审计与覆写。
+
+## Wiki Feedback Loop（Runner → Builder）
+
+Harness Runner 没有 wiki 写权限，但能把"看到的问题"通过 append-only 反馈队列传给 Builder。Cursor 在 build-time 审核后修订。
+
+```mermaid
+flowchart LR
+    S[学生] --> H[Harness Runner<br/>qwen-plus]
+    H -.教学不写wiki.-> WK[(wiki/)]
+    H -.feedback_submit.-> IN[wiki/feedback/inbox/]
+
+    IN --next build session--> C[Cursor Builder<br/>读 inbox]
+    C --feedback_reviewer--> D{决策}
+    D --accept--> W1[wiki_write 修订]
+    D --accept--> P[移入 processed/]
+    D --reject--> R[移入 rejected/]
+    D --needs_more_info--> IN2[留 inbox + 标注]
+    W1 -.写.-> WK
+    W1 -.记录.-> Log[wiki/log.md]
+```
+
+**关键约束**：
+- 队列目录 `res/phy/wiki/feedback/inbox/` 对 runner 仅开放 `O_CREAT | O_EXCL`（通过 `src.security` policy 实现）
+- `processed/` / `rejected/` 仅 builder 可写
+- 三种触发源：学生显式反馈（V3）、教学结束自审（V3 hook）、数据信号（V6 quiz 错误率/IRT 异常）
+- 详细 ticket 格式与处理协议见 `.cursor/rules/physics-project.mdc` 的 Feedback Loop 段落
 
 ## 风险点与缓解
 

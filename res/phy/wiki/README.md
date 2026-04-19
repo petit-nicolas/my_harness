@@ -11,6 +11,10 @@ wiki/
 ├── overview.md         # 知识库覆盖度与待补区域
 ├── sources/            # 每次 ingest 的章节摘要页（桥接 raw 与 wiki）
 │   └── pep-v1-ch3.md   # 例：人教版必修一第三章摘要
+├── feedback/           # Runner→Builder 反馈队列（V3 引入）
+│   ├── inbox/          # 待处理（Harness Runner 只能 append）
+│   ├── processed/      # 已接受并修订（仅 Cursor Builder 可写）
+│   └── rejected/       # 拒绝（仅 Cursor Builder 可写）
 ├── mechanics/          # 力学
 ├── electromagnetism/   # 电磁学
 ├── thermodynamics/     # 热学
@@ -31,6 +35,12 @@ wiki/
 - 概念页 frontmatter 的 `sources:` 字段引用 sources 页（而非直接引用 raw）
 - 修订溯源走"概念页 → sources 页 → raw 文件"三跳
 
+## Builder / Runner 写权限
+
+- **Builder（Cursor Agent）**：所有子目录可读写
+- **Runner（Harness Agent）**：除 `feedback/inbox/`（仅 append）外，其余路径**只读**
+- 通过 `src.security` file policy 实现硬隔离，不依赖 prompt 约束
+
 ## 当前状态
 
-**空目录**，等待 V1.2 子任务建立首个 schema 与索引/日志/概览骨架。
+**空目录**，等待 V1.2 子任务建立首个 schema 与索引/日志/概览骨架。Feedback 子目录由 V3 子任务建立。

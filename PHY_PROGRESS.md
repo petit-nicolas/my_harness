@@ -4,7 +4,7 @@
 
 - **分支**：`vertical-industry`
 - **当前阶段**：V1 — Wiki 基础设施 + MinerU 解析底座（规划已优化，等待启动 V1.1）
-- **当前步骤**：phy-v0 已封版；V1/V2 规划于 2026-04-19 经 MinerU 集成方案优化后定稿
+- **当前步骤**：phy-v0 已封版；2026-04-19 完成 V1/V2 规划优化（MinerU + Reviewer + 8 步 ingest）；2026-04-19 完成 Builder/Runner 二分 + Wiki Feedback Loop 设计
 - **最后更新**：2026-04-19
 
 ---
@@ -47,7 +47,7 @@
 - [ ] V1.2 建立 `res/phy/wiki/{index.md, log.md, overview.md}` 骨架（含双索引模板与状态机条目示例）
 - [ ] V1.3 移植并物理特化 `src/phy/tools/mineru.py`（默认 vlm + 强制 `--page-ranges` + 自动迁移图片到 `<source-stem>-images/` + 自动重写 markdown 图片路径），更新 `requirements.txt` 加入 `requests`
 - [ ] V1.4 新增 `.cursor/rules/mineru-tool.mdc` 已完成（V0 阶段顺手做掉，V1 阶段验证此规则被遵循）；新增 `.ENV.example` 模板
-- [ ] V1.5 实现 `src/phy/wiki.py` — `wiki_read` / `wiki_write` / `wiki_search` / `wiki_index` 四工具，注册到工具表（仅在 physics mode 加载）
+- [ ] V1.5 实现 `src/phy/wiki.py` — `wiki_read` / `wiki_write` / `wiki_search` / `wiki_index` 四工具，**注册时按 mode 分级**（read/search 为 builder+runner，write/index 仅 builder）
 - [ ] V1.6 冒烟测试脚本 `tests/phy/test_v1_smoke.py`：mineru 解析一个小 PDF + 创建一个测试 wiki 页 + 索引自动更新 + 图片正确落盘
 - [ ] V1.7 仪表盘 `dashboard/pages/phy_1_wiki.py`（页面浏览 + 反向链接 + log 状态机三栏视图：active/paused/done）
 
@@ -69,13 +69,17 @@
 
 ---
 
-### V3：教师 Persona + 教学策略
+### V3：教师 Persona + 教学策略 + Feedback Loop 接入
 
-- [ ] V3.1 编写 `src/phy/physics_prompt.md`（顶级教师人格 + 苏格拉底守则 + wiki 使用规范）
-- [ ] V3.2 扩展 `src/prompt.py` 支持 `--mode physics` 分支（最小化侵入主线）
-- [ ] V3.3 实现 `src/phy/strategies.py` 三个策略工具（`teach_analogy` / `teach_derivation` / `teach_misconception`）
-- [ ] V3.4 CLI `harness --mode physics` 端到端跑通
-- [ ] V3.5 仪表盘新增教学策略试触发演示
+- [ ] V3.1 编写 `src/phy/physics_prompt.md`（顶级教师人格 + 苏格拉底守则 + wiki 使用规范 + feedback_submit 触发指南）
+- [ ] V3.2 扩展 `src/prompt.py` 支持 `--mode physics` 分支（最小化侵入主线），引入 builder/runner 工具表过滤
+- [ ] V3.3 实现 `src/phy/strategies.py` 三个策略工具（`teach_analogy` / `teach_derivation` / `teach_misconception`，runner 限定）
+- [ ] V3.4 实现 `src/phy/feedback.py`：runner 端 `feedback_submit`（仅 `O_CREAT | O_EXCL` 写 inbox）+ builder 端 `feedback_resolve` / `feedback_reject` + 去重检查
+- [ ] V3.5 编写 `src/phy/reviewers/feedback_reviewer.md`（cursor 充当，输出 accept/reject/needs_more_info + reasoning）
+- [ ] V3.6 建立 `res/phy/wiki/feedback/{inbox,processed,rejected}/` 目录骨架 + README；`src.security` 加 file policy 锁死写权限
+- [ ] V3.7 教学结束 hook：post-session 扫对话决定是否 submit；Cursor build session 启动协议：扫 inbox 报告未处理数量
+- [ ] V3.8 端到端验证：CLI `harness --mode physics` 启动；模拟"老师讲错了"触发 feedback_submit；模拟一个 ticket 由 Cursor + feedback_reviewer 走完 accept 流程并修订 wiki
+- [ ] V3.9 仪表盘新增 Feedback 视图（inbox/processed/rejected 三栏 + ticket 详情 + 教学策略试触发演示）
 
 **封版标记**：未开始（目标 tag: phy-v3）
 
@@ -105,13 +109,14 @@
 
 ---
 
-### V6：自适应练习题
+### V6：自适应练习题 + 数据信号触发反馈
 
 - [ ] V6.1 `quiz_generate`（从 wiki 抽取 + 基于 student 弱点定向）
 - [ ] V6.2 `quiz_evaluate`（判分 + 错因分析 + 回写 StudentMap）
 - [ ] V6.3 错题本：双向链接到 wiki 节点与 student 节点
 - [ ] V6.4 IRT-lite 难度调节（正确率窗口 → 动态难度）
-- [ ] V6.5 仪表盘集成：一键"做题" + 即时反馈
+- [ ] V6.5 `post_tool_use` hook：监测 quiz_evaluate 信号（同 wiki 节点 N 名学生连错率 > 阈值 / IRT 难度估计偏离 wiki level）→ 自动 `feedback_submit`，去重 24h
+- [ ] V6.6 仪表盘集成：一键"做题" + 即时反馈 + 自动 submit 信号面板
 
 **封版标记**：未开始（目标 tag: phy-v6）
 
@@ -133,6 +138,7 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-19 | Builder/Runner 二分 + Feedback Loop 设计 | 完成 | 明确 Cursor 做 Build-time wiki 维护、Harness 做 Runtime 教学；工具按 mode 分级；新增 Wiki Feedback Loop（runner append-only inbox/，cursor 审核处理）；Reviewer 表加 executor 字段（V2 V3 走 cursor，V4 V6 V7 走 harness）；V3 加 feedback 接入 4 个子任务，V6 加自动信号触发 |
 | 2026-04-19 | V1/V2 规划优化 | 完成 | 引入 MinerU + Reviewer Persona + 8 步 ingest 状态机 + sources/ 摘要层 + 图片资产保留；新增 `mineru-tool.mdc`；扩展 `physics-project.mdc` |
 | 2026-04-15 | P0.1-P0.6 Phase 0 全部完成 | 完成 | 建立 `physics-project.mdc` + `PHY_PLAN.md` + `PHY_PROGRESS.md` + 目录骨架，打 tag phy-v0 |
 

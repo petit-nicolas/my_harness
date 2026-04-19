@@ -117,6 +117,41 @@ Agent 默认作为**苏格拉底式引导者**：
 
 如对话窗口超限或人为中断，下次启动时 Agent 必须先读 `log.md`，找到 `state: active|paused` 条目，从最后一个 `[x]` 步骤的下一步继续，**不得跳步**。
 
+## Builder / Runner 二分架构（核心血统约定）
+
+物理子项目存在两个智能体角色，**血统不可混淆**：
+
+| 角色 | 模型 | 职责 | 触发场景 | 工作目录权限 |
+|------|------|------|----------|--------------|
+| **Builder** | Cursor Agent（Claude） | Wiki 准备、知识维护、反馈审核 | 开发会话（与人对话） | `res/phy/wiki/` 可读写 |
+| **Runner** | Harness Agent（qwen-plus） | 教学交互、答疑、出题、演示 | 学生使用 harness CLI / 仪表盘 | `res/phy/wiki/` **只读** |
+
+### 工具按 mode 分级
+
+每个工具在注册时必须打 `mode` 标签，工具表按当前 mode 过滤：
+
+| 工具 | builder | runner |
+|------|:-------:|:------:|
+| `wiki_read` / `wiki_search` | ✅ | ✅ |
+| `wiki_write` / `wiki_index` / `wiki_lint` | ✅ | ❌ |
+| `ingest_chapter` | ✅ | ❌ |
+| `mineru.py`（CLI） | ✅ | ❌ |
+| `feedback_submit` | ❌ | ✅ |
+| `feedback_resolve` / `feedback_reject` | ✅ | ❌ |
+| `student_*` | ❌ | ✅ |
+| `render_demo` / `render_plot` | ❌ | ✅ |
+| `quiz_*` | ❌ | ✅ |
+
+**硬约束**：runner 模式下 `wiki_write` 等工具**根本不出现在工具表**，连 prompt 注入都无法触发。
+
+### Builder 的 Cursor 直接执行原则
+
+Cursor Agent 不调用 Harness 工具表，而是通过 `Read` / `Write` / `StrReplace` / `Shell` 等原生工具直接操作。`src/phy/ingest.py` 的工作流既以 Python 函数库形式存在（供 Cursor 内联调用），也以 `python -m src.phy.ingest` CLI 形式暴露（供 Cursor 通过 Shell 调用）。Harness builder mode 工具注册仅作"备用接口"，不强制走。
+
+### Runner 的反馈通道（Feedback Loop）
+
+Harness Runner **永远不写 wiki**，但通过 append-only 的反馈队列把"看到的问题"传递给 Builder。详见 Feedback Loop 章节。
+
 ## Reviewer Persona 机制
 
 **核心原则**：流水线中需要"专业判断"的环节，由配置化的虚拟教师角色（Reviewer Persona）发起独立子 LLM 调用完成评审，**不暂停等真人**；真人可在仪表盘事后覆写。
@@ -125,11 +160,25 @@ Agent 默认作为**苏格拉底式引导者**：
 
 ```
 src/phy/reviewers/
-├── physics_teacher_reviewer.md    # 资深物理教研组长（V2 引入）
-├── assessment_reviewer.md         # 学生评估校对（V4 引入）
-├── quiz_quality_reviewer.md       # 题目质量审核（V6 引入）
-└── report_reviewer.md             # 学习报告把关（V7 引入）
+├── physics_teacher_reviewer.md    # 资深物理教研组长（V2 引入，executor: cursor）
+├── feedback_reviewer.md           # 反馈审核员（V3 引入，executor: cursor）
+├── assessment_reviewer.md         # 学生评估校对（V4 引入，executor: harness）
+├── quiz_quality_reviewer.md       # 题目质量审核（V6 引入，executor: harness）
+└── report_reviewer.md             # 学习报告把关（V7 引入，executor: harness）
 ```
+
+### Reviewer 的 executor 字段（双血统）
+
+每个 reviewer 通过 frontmatter 的 `executor` 字段声明由谁充当：
+
+| executor | 含义 | 使用模型 | 调用方式 |
+|----------|------|----------|----------|
+| `cursor` | 由 Cursor Agent 自己读 reviewer.md 充当评审角色 | Cursor 当前模型（Claude） | Cursor 直接采用该 prompt 进入"角色扮演"模式输出 JSON |
+| `harness` | 由 Harness 内部发起独立子调用 | qwen-plus（走 `src.client._client`） | `call_reviewer(persona_id, payload)` 通用入口 |
+
+**判定原则**：
+- Build-time 触发（Cursor 在场）→ `executor: cursor`：质量最高、零额外成本、用户可即时质疑
+- Runtime 触发（学生在场，Cursor 不在）→ `executor: harness`：保持 runtime 闭环
 
 每个 reviewer 文件结构（YAML frontmatter + 自然语言提示词）：
 
@@ -137,6 +186,7 @@ src/phy/reviewers/
 ---
 id: physics_teacher_reviewer
 title: 资深物理教研组长
+executor: cursor                   # 由 Cursor Agent 充当
 applies_to: [ingest.split_review]
 input_schema:
   source_summary: str
@@ -145,8 +195,7 @@ output_schema:
   user_guidance: str
   splits: list[{id, title, focus, skip}]
   confidence: float
-model: qwen-plus
-temperature: 0.2
+temperature_hint: 低
 ---
 
 # 系统提示词
@@ -156,9 +205,14 @@ temperature: 0.2
 
 ### 调用约定
 
-- 每次 reviewer 调用使用**独立 LLM session**（不污染主对话上下文）
-- 输出必须是 reviewer frontmatter 中 `output_schema` 定义的结构化 JSON
-- 调用结果写入 `log.md` 的 `user_guidance` 字段，**必须标注** `reviewer: <id> | confidence: <float> | reviewed_at: <iso>`
+- **executor: harness** 的 reviewer：
+  - 每次调用使用**独立 LLM session**（不污染主对话上下文）
+  - 输出必须是 frontmatter `output_schema` 定义的结构化 JSON
+  - 走 `src.hooks` 通道（pre/post 可拦截、可审计）
+- **executor: cursor** 的 reviewer：
+  - Cursor 在收到评审请求时，读取对应 reviewer.md 的提示词，按角色生成结构化输出
+  - 决策记录直接写入 wiki/log.md，标注 `reviewer: <id> | by: cursor`
+- 调用结果统一写入对应 log，**必须标注** `reviewer: <id> | executor: <kind> | confidence: <float> | reviewed_at: <iso>`
 - 当 `confidence < 0.6` 时在仪表盘标记"待人工复核"，但**不阻塞**流水线
 - 真人在仪表盘修改 reviewer 决策后，记录到 log 的 `human_override` 字段
 
@@ -175,10 +229,95 @@ temperature: 0.2
 
 reviewer 调用走主项目 `src.hooks` 通道（pre_tool_use 可拦截、post_tool_use 可记审计），保持安全/审计/统计三层一致。
 
+## Feedback Loop（Runner → Builder 反馈闭环）
+
+Harness Runner 没有 wiki 写权限，但能通过**追加式反馈队列**把"看到的问题"传给 Builder。Cursor 在 build-time 审核处理。
+
+### 目录结构
+
+```
+res/phy/wiki/feedback/
+├── README.md
+├── inbox/        待处理（runner append-only，不可删除/覆盖）
+│   └── 2026-04-19T10-32-15-mechanics-newton-second-law-a3f2.md
+├── processed/    已接受并完成 wiki 修订
+└── rejected/     拒绝，文件含 reviewer 理由
+```
+
+### Ticket 文件命名
+
+`<ISO timestamp>-<target slug>-<short hash>.md`
+
+- timestamp 精确到秒，保证全局唯一
+- target slug 是 wiki 页面 id，便于按页面聚合
+- 4 位 hash 防同秒并发冲突
+
+### Ticket frontmatter 必填字段
+
+```yaml
+---
+ticket_id: 2026-04-19T10-32-15-a3f2
+target: mechanics/newton-second-law      # wiki 页 id（new_concept 类可填 proposed/<slug>）
+kind: error | gap | unclear | outdated | new_concept
+submitted_by: harness-runner | harness-hook | student-direct
+submitted_at: 2026-04-19T10:32:15
+session_id: <harness session id>          # 可追溯到原对话
+evidence: |
+  学生原话 / 系统观测信号
+suggestion: |                              # 可空，runner 不强制给修订建议
+  可选的修订建议
+status: pending                            # pending → accepted | rejected | needs_more_info
+---
+```
+
+### Runner 提交工具：feedback_submit
+
+- runner mode 限定，三种触发源：
+  1. **学生显式反馈**："这里讲错了/没看懂"等关键词命中 → Harness 主动调用
+  2. **教学结束自审视**：每次 session 结束前 hook 扫一遍对话，判断是否值得 submit
+  3. **数据信号**（V6 起）：quiz 错误率/IRT 异常/连续错同类题 → post_tool_use hook 自动 submit
+- 工具调用语义：仅在 `inbox/` 创建新文件，不返回 wiki 内容、不读 inbox 已有 ticket
+- 提交后 runner 在对话中告知学生"反馈已记录，将由教研团队审核"
+
+### Builder 处理协议（Cursor 必读）
+
+每次 Cursor build-time session 启动时，**强制执行**以下步骤：
+
+1. 扫 `res/phy/wiki/feedback/inbox/`，统计 ticket 数量与 kind 分布
+2. 向用户报告："发现 X 条待处理反馈（Y 个 error / Z 个 unclear / ...），是否处理？"
+3. 用户选择处理时，按以下流程逐条评审：
+   - 读 ticket 全文 + 对应 wiki 页 + ticket 提到的 raw 资料
+   - 调用 `feedback_reviewer`（Cursor 自己充当）输出 `accept | reject | needs_more_info` + reasoning
+   - 与用户确认决策后执行：
+     - **accept**：调用 `wiki_write` 修订对应页 → 移 ticket 到 `processed/` 并在 ticket frontmatter 加 `processed_at` / `commit_summary` → 在 `wiki/log.md` 追加 `feedback_processing` 类条目
+     - **reject**：移 ticket 到 `rejected/`，在 frontmatter 加 `rejected_at` / `reject_reason`
+     - **needs_more_info**：留在 inbox，frontmatter 加 `notes` 字段说明缺什么；下次同 target 的 feedback 来时合并查看
+4. 处理完成向用户汇总："本次接受 X 条，拒绝 Y 条，待补 Z 条"
+
+### 文件操作约束
+
+- `inbox/` 子目录 runner 进程**只能 `O_CREAT | O_EXCL` 创建新文件**，没有 chmod/unlink 权限
+- `processed/` 与 `rejected/` 仅 builder 可写
+- 这层约束通过 `src.security` 的 file policy 实现（`block_write` rule）
+
+### 防止反馈洪流
+
+- runner 每次 `feedback_submit` 前先做去重检查（同 target + 近 1 小时内 + 同 kind 不重复提交）
+- `feedback_reviewer` 在批量处理时主动归并同 target 的多个 ticket（merge_into 字段）
+- inbox 容量上限 100 条（满时 runner 提示"反馈队列已满，请通知管理员处理"，但**不阻塞教学**）
+
+### 与 Reviewer Persona 的关系
+
+- `feedback_reviewer.md`（V3 引入，executor: cursor）：辅助 Cursor 判断"这条反馈是否合理、wiki 是否真的需要改"
+- 它和 `physics_teacher_reviewer.md` 的差异：前者审反馈，后者审教材拆分
+- 都由 Cursor 充当，不调 qwen，避免成本与质量陷阱
+
 ## 与 Harness 主线的边界
 
 - **不修改** `src/agent.py` / `src/prompt.py` 等主线代码，除非通过 `--mode physics` 等注入点扩展
-- 物理专属工具只挂载在 `src/phy/`，通过工具注册机制接入
+- 物理专属工具只挂载在 `src/phy/`，通过工具注册机制接入；按 `mode: builder|runner` 过滤
 - 物理相关提示词走 `src/phy/physics_prompt.md`，由 prompt 层根据模式切换
-- Reviewer Persona 调用复用主项目 `src.client._client`，但每次调用独立 session，不污染主对话历史
+- Harness Runner 的 Reviewer 调用复用主项目 `src.client._client`，但每次调用独立 session，不污染主对话历史
+- Cursor Builder 的 Reviewer 由 Cursor 自己充当，不调用任何外部 LLM
 - MinerU 工具脚本放在 `src/phy/tools/mineru.py`（与 `src/phy/` 平行的子模块），不挂在项目根 `tools/`
+- Wiki 修订**只能**发生在 build-time，runner 永远只读 wiki + 写 feedback inbox

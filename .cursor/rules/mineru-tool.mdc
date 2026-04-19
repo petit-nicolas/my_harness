@@ -8,6 +8,11 @@ alwaysApply: false
 
 # MinerU 工具使用规范（物理子项目）
 
+> **mode: builder（Build-time only）**
+> 本工具属于 Wiki 准备阶段（Builder）专用，由 **Cursor Agent** 通过 Shell 调用 CLI 运行。
+> Harness Runner（qwen-plus）**没有**调用本工具的权限，runner 工具表中不出现 mineru 相关入口。
+> 详见 `physics-project.mdc` 的 Builder/Runner 二分章节。
+
 ## 调用方式
 
 ```bash
