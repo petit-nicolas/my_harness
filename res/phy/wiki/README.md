@@ -1,26 +1,36 @@
 # res/phy/wiki — 物理知识权威图谱
 
-由 LLM 通过 `wiki_read` / `wiki_write` / `wiki_search` / `wiki_index` 工具维护的结构化知识库。
+由 LLM 通过工具维护的结构化知识库。所有写操作走 8 步 ingest 流水线（V2 落地），状态持久化在 `log.md` 中支持断点恢复。
 
 ## 目录规划（V1 之后填充）
 
 ```
 wiki/
-├── index.md                 # 反向索引，wiki_index 工具自动维护
-├── log.md                   # 所有写操作按时间追加记录
-├── mechanics/               # 力学
-├── electromagnetism/        # 电磁学
-├── thermodynamics/          # 热学
-├── optics/                  # 光学
-└── modern/                  # 近代物理
+├── index.md            # 双索引：按学科 + 按教材章节
+├── log.md              # 8 步 ingest 状态机日志（active/paused/done）
+├── overview.md         # 知识库覆盖度与待补区域
+├── sources/            # 每次 ingest 的章节摘要页（桥接 raw 与 wiki）
+│   └── pep-v1-ch3.md   # 例：人教版必修一第三章摘要
+├── mechanics/          # 力学
+├── electromagnetism/   # 电磁学
+├── thermodynamics/     # 热学
+├── optics/             # 光学
+└── modern/             # 近代物理
 ```
 
 ## 写作规范
 
-见 `res/phy/schemas/PHYSICS_SCHEMA.md`（V1 建立）与 `.cursor/rules/physics-project.mdc` 的"Wiki 写作风格"段落。
+见 `res/phy/schemas/PHYSICS_SCHEMA.md`（V1 建立）与 `.cursor/rules/physics-project.mdc`。
 
-每个 `.md` 页面必须包含 frontmatter：`id`、`title`、`level`、`prerequisites`、`sources`、`updated`。
+每个 `.md` 页面 frontmatter 必填：`id` / `title` / `level` / `prerequisites` / `sources` / `images` / `formulas` / `updated`。
+
+## sources/ 摘要层的作用
+
+- **桥接** `raw/` 原始资料和 `wiki/<subject>/` 学科概念页
+- 每次 ingest 产出**至少一个** sources 页（如 `sources/pep-v1-ch3.md`）
+- 概念页 frontmatter 的 `sources:` 字段引用 sources 页（而非直接引用 raw）
+- 修订溯源走"概念页 → sources 页 → raw 文件"三跳
 
 ## 当前状态
 
-**空目录**，等待 V1 封版后填入首个 schema 与索引骨架。
+**空目录**，等待 V1.2 子任务建立首个 schema 与索引/日志/概览骨架。

@@ -9,19 +9,22 @@
 
 ## 设计哲学
 
-三个核心支柱，对应学生学习三要素（**知识** × **跟踪** × **理解**）：
+三个核心支柱 + 一个治理机制：
 
-| 支柱 | 目标 | 类比 |
-|------|------|------|
-| **Physics Wiki** | 稳定、可追溯、LLM 自维护的物理知识图谱 | 教师的"教研组共享备课库" |
-| **Student Map** | 每个学生个人的任督二脉图谱 | 教师的"学生档案与错题本" |
-| **Interactive Demo** | 基于物理引擎的 HTML5 交互演示 | 实验器材 + 模拟实验室 |
+| 层 | 角色 | 类比 |
+|----|------|------|
+| **Physics Wiki** | 稳定、可追溯、LLM 自维护的物理知识图谱（**含图片资产**） | 教研组共享备课库 |
+| **Student Map** | 每个学生个人的任督二脉图谱 | 学生档案与错题本 |
+| **Interactive Demo** | 基于物理引擎的 HTML5 交互演示 | 实验器材 / 模拟实验室 |
+| **Reviewer Persona** | 配置化的虚拟物理教师，自动评审流水线关键节点 | 教研组长 / 命题组长 |
 
-三者**节点 id 对齐**：Wiki 的 `mechanics/newton-second-law` 就是 Student Map 上同名节点的锚点，也是 Quiz/Demo 归类的主键。这种同构关系让 Agent 能够：
+三个支柱**节点 id 对齐**：Wiki 的 `mechanics/newton-second-law` 就是 Student Map 上同名节点的锚点，也是 Quiz/Demo 归类的主键。这种同构关系让 Agent 能够：
 
 - 讲解时依 Wiki 保证正确性（防 LLM 幻觉漂移）
 - 评估时依 Student Map 定位薄弱（因材施教）
 - 演示时依 Demo 模板即时生成可交互场景（降低抽象门槛）
+
+**Reviewer Persona** 让流水线在不卡真人的前提下保留专业性把关，详见 `.cursor/rules/physics-project.mdc` 的 Reviewer 段落。
 
 ---
 
@@ -97,9 +100,10 @@ flowchart TB
 | 3D / 动画影片 | ❌ 不纳入 V1-V7 | Manim 渲染重，与即时交互诉求不符 |
 | 仪表盘 | **Streamlit**（复用 Harness 方案） | 零前端负担，iframe 嵌入 HTML5 demo |
 | 学生图谱渲染 | **pyvis** | 交互式网络图，零前端代码 |
-| Ingest | **pypdf / markdownify** | 高中教材主要 PDF/HTML |
+| **Ingest 解析** | **MinerU**（vlm 模型为主） | 物理教材公式/表格/示意图密集，MinerU vlm 业界最佳；保留图片资产 |
+| Reviewer LLM | 复用 Harness `src.client`（qwen-plus, low temperature) | 不引入新依赖 |
 
-**明确排除**：Manim（渲染不即时）、Three.js（3D 场景高中用不到）、私有题库 API（脱离教学框架定位）。
+**明确排除**：Manim（渲染不即时）、Three.js（3D 场景高中用不到）、私有题库 API（脱离教学框架定位）、pypdf 直抽文本（无法处理图片公式，被 MinerU 替代）。
 
 ---
 
@@ -110,42 +114,59 @@ harness/ (vertical-industry 分支)
 ├── PHY_PLAN.md                    # 本文件
 ├── PHY_PROGRESS.md                # 物理子项目进度日志
 ├── .cursor/rules/
-│   ├── physics-project.mdc        # 物理专属规则（已建立）
+│   ├── physics-project.mdc        # 物理专属规则（含 Reviewer / Ingest 工作流）
+│   ├── mineru-tool.mdc            # MinerU 工具使用规范（V1 建立）
 │   └── task-protocol.mdc          # 已扩展，说明 PHY 文档分治
 ├── res/phy/
-│   ├── LLM Wiki.pdf               # 参考方案（已存在）
+│   ├── LLM Wiki.pdf               # 参考方案
 │   ├── wiki/                      # LLM 维护的权威知识图谱
-│   │   ├── index.md               # 反向索引，wiki_index 维护
-│   │   ├── log.md                 # 修订历史，所有写操作追加
-│   │   ├── mechanics/*.md
+│   │   ├── index.md               # 双索引（按学科 + 按教材章节），wiki_index 维护
+│   │   ├── log.md                 # 8 步 ingest 状态机日志（断点恢复）
+│   │   ├── overview.md            # 知识库覆盖度与待补区域概览
+│   │   ├── sources/               # 每次 ingest 的章节摘要页（桥接 raw 与 wiki）
+│   │   │   └── pep-v1-ch3.md      # 例：人教版必修一第三章摘要
+│   │   ├── mechanics/*.md         # 学科分类的概念/原理/题型页
 │   │   ├── electromagnetism/*.md
 │   │   ├── thermodynamics/*.md
 │   │   ├── optics/*.md
 │   │   └── modern/*.md
-│   ├── raw/                       # 原始资料（不可变），溯源锚点
-│   │   └── pep-textbook-v1/       # 人教版骨架（V2 填充）
+│   ├── raw/                       # 原始资料（只读），溯源锚点
+│   │   └── pep/v1/                # 例：人教版必修一
+│   │       ├── full.pdf           # 原 PDF（不可改）
+│   │       ├── ch3.md             # MinerU 转出的 markdown
+│   │       └── ch3-images/        # MinerU 提取的图片（电路/受力/波形等）
+│   │           ├── img-001.png
+│   │           └── ...
 │   ├── schemas/
-│   │   └── PHYSICS_SCHEMA.md      # Wiki 写作约定（V1 建立）
+│   │   └── PHYSICS_SCHEMA.md      # Wiki 写作约定（V1 建立，含图片/公式字段）
 │   ├── demo_templates/            # 6 个 HTML5 核心模板（V5 填充）
-│   │   ├── projectile.html        # 斜抛
-│   │   ├── pendulum.html          # 单摆
-│   │   ├── spring.html            # 弹簧振子
-│   │   ├── circuit.html           # 简单电路
-│   │   ├── wave.html              # 机械波
-│   │   └── orbit.html             # 天体运动
+│   │   ├── projectile.html
+│   │   ├── pendulum.html
+│   │   ├── spring.html
+│   │   ├── circuit.html
+│   │   ├── wave.html
+│   │   └── orbit.html
+│   ├── renders/                   # render_demo 生成的实例 HTML（gitignore）
 │   └── students/                  # 学生档案 ⚠️ gitignore 排除
 │       └── <student_id>.json
 ├── src/phy/
 │   ├── __init__.py
-│   ├── wiki.py                    # V1 Wiki CRUD
-│   ├── ingest.py                  # V2 原料吸收流水线
+│   ├── wiki.py                    # V1 Wiki CRUD（4 工具）
+│   ├── ingest.py                  # V2 8 步 ingest 工作流编排
 │   ├── strategies.py              # V3 教学策略工具
 │   ├── physics_prompt.md          # V3 顶级教师人格提示词
 │   ├── student.py                 # V4 Student Map
 │   ├── render.py                  # V5 Demo/Plot 渲染
-│   └── quiz.py                    # V6 练习题系统
+│   ├── quiz.py                    # V6 练习题系统
+│   ├── tools/
+│   │   └── mineru.py              # V1 MinerU 解析工具（移植 + 物理特化）
+│   └── reviewers/                 # 配置化的虚拟教师角色
+│       ├── physics_teacher_reviewer.md   # V2 引入（拆分粒度评审）
+│       ├── assessment_reviewer.md        # V4 引入
+│       ├── quiz_quality_reviewer.md      # V6 引入
+│       └── report_reviewer.md            # V7 引入
 └── dashboard/pages/
-    ├── phy_1_wiki.py              # Wiki 浏览 + 写作
+    ├── phy_1_wiki.py              # Wiki 浏览 + log 状态可视化
     ├── phy_2_student_map.py       # 学生图谱 (pyvis)
     ├── phy_3_tutor.py             # 交互教学台 (iframe demo)
     └── phy_4_report.py            # 学习报告
@@ -157,23 +178,47 @@ harness/ (vertical-industry 分支)
 
 每个 `VN` 为一次封版，对应 git tag `phy-vN`，可独立演示。内部子任务编号 `VN.M`，详细清单在 `PHY_PROGRESS.md`。
 
-### V1 — Wiki 基础设施
+### V1 — Wiki 基础设施 + MinerU 解析底座
 
-**目标**：搭起 Wiki 的最小闭环，LLM 能读写自己的知识库。
+**目标**：搭起 Wiki 最小闭环，LLM 能读写自己的知识库；同时建立教材解析能力，为 V2 ingest 流水线备好"读"的工具。
 
-- 产出：`PHYSICS_SCHEMA.md`、`index.md`、`log.md` 骨架
-- 工具：`wiki_read` / `wiki_write` / `wiki_search` / `wiki_index`
-- 仪表盘：`phy_1_wiki.py`（页面浏览 + 反向链接视图）
-- 验收：能通过工具新增一个页面、搜索、自动更新 index
+- 产出（schema 与日志层）：
+  - `res/phy/schemas/PHYSICS_SCHEMA.md`（frontmatter 含 `images` / `formulas` 字段，双向链接，log 格式）
+  - `res/phy/wiki/index.md`（双索引模板：按学科 + 按教材）
+  - `res/phy/wiki/log.md`（8 步 ingest 状态机骨架）
+  - `res/phy/wiki/overview.md`（覆盖度概览模板）
+- 产出（解析工具）：
+  - `src/phy/tools/mineru.py`（移植参考方案 + 物理特化：默认 vlm，强制 page-ranges，自动迁移图片到 `<source-stem>-images/`，自动重写 markdown 图片路径）
+  - `.cursor/rules/mineru-tool.mdc`（API/模型选择、错误码、产物归位规范）
+- 产出（Wiki CRUD 工具）：
+  - `src/phy/wiki.py`：`wiki_read` / `wiki_write` / `wiki_search` / `wiki_index`
+  - 注册到工具表，受 hooks/security 层保护
+- 产出（仪表盘）：
+  - `dashboard/pages/phy_1_wiki.py`：页面浏览 + 反向链接 + log 状态机可视化（哪些 ingest 在 active/paused/done）
+- **冒烟验证**：手工跑 `python src/phy/tools/mineru.py file <小 PDF> --output res/phy/raw/test/`，确认 markdown + images 正确落盘；调用 `wiki_write` 新建一个测试页并出现在 `index.md`
+- 验收：MinerU 能解析图文公式 PDF，wiki 四工具闭环可用
 
-### V2 — Ingest 流水线 + Lint
+### V2 — Ingest 8 步流水线 + Reviewer + Lint + 端到端实跑
 
-**目标**：把原始教材变成结构化 wiki 页面，并保证一致性。
+**目标**：把"读教材 → 写 wiki"做成可断点恢复的状态机，引入 Reviewer Persona 替代真人评审，并完成首章端到端验证。
 
-- 产出：`ingest_source` 工具（PDF/MD/HTML → 抽概念 → 多页更新 + log）
-- 产出：`wiki_lint`（孤儿页 / 公式冲突 / 缺失引用 / frontmatter 校验）
-- 产出：人教版高中物理目录骨架（raw/ 预置）
-- 验收：吸收一本教材章节后，通过 lint 检查，生成至少 10 个 wiki 页面
+- 产出（Reviewer Persona 引入）：
+  - `src/phy/reviewers/physics_teacher_reviewer.md`（资深物理教研组长人格 + ingest.split_review 输入输出契约）
+  - `src/phy/reviewers/__init__.py` 提供 `call_reviewer(persona_id, payload) -> dict` 通用调用入口（独立 LLM session、写 audit log）
+- 产出（Ingest 编排）：
+  - `src/phy/ingest.py`：`ingest_chapter(source, page_ranges)` 工具，按 8 步状态机推进
+  - 每步操作通过 hooks 写入 `wiki/log.md`，`state` 在 `active / paused / done` 间正确流转
+  - 步骤 4 调用 `physics_teacher_reviewer`，结果写入 `user_guidance` 字段
+  - 启动协议：每次工具调用前先扫描 log.md，发现未完成任务时优先恢复
+- 产出（Lint）：
+  - `src/phy/wiki.py` 增加 `wiki_lint`：孤儿页 / 缺图 / 公式冲突 / frontmatter 缺字段 / 链接断裂
+- 产出（教材骨架）：
+  - `res/phy/raw/pep/v1/`、`res/phy/raw/pep/v2/`（按用户提供的实际教材建立）
+- **端到端验收**（必须实跑，不靠模拟）：
+  - 选择一章用真实 MinerU + Reviewer 跑通 8 步全流程
+  - 产出至少 1 个 sources 摘要 + 5 个学科概念页 + 图片正确引用
+  - 中途模拟一次"对话中断"，重启后能从 log 断点恢复完成剩余步骤
+  - `wiki_lint` 全绿
 - 依赖：V1
 
 ### V3 — 教师 Persona + 教学策略
@@ -234,15 +279,29 @@ harness/ (vertical-industry 分支)
 
 ---
 
+## Reviewer Persona 演进路线（横切 V2-V7）
+
+| Reviewer | 引入版本 | 评审场景 | 输出契约要点 |
+|----------|----------|----------|--------------|
+| `physics_teacher_reviewer` | V2 | ingest 步骤 4 拆分粒度 | 给出 splits 列表 + user_guidance + confidence |
+| `assessment_reviewer` | V4 | 学生掌握度评估校对 | 修正 mastery 估值 + 标注异常 + reasons |
+| `quiz_quality_reviewer` | V6 | 题目难度/科学性/教学价值 | 接受 / 重写 / 拒绝 + 修改建议 |
+| `report_reviewer` | V7 | 学习报告语气与内容把关 | 内容裁剪建议 + 鼓励性语句润色 |
+
+所有 Reviewer 都遵循 `.cursor/rules/physics-project.mdc` 的统一调用约定，便于真人通过仪表盘审计与覆写。
+
 ## 风险点与缓解
 
 | 风险 | 影响 | 缓解 |
 |------|------|------|
-| Wiki 初始填充工作量大 | 拖慢 V2 后所有阶段 | 先用小范围（力学两章）验证流程，再横向扩展 |
-| 自动评估（V4）准确性 | Student Map 失真、错题本失效 | 评估走"LLM 打分 + 置信度 + 学生复议"三重机制 |
-| HTML5 demo 安全性 | 渲染注入风险 | `render_demo` 仅填充模板参数，不执行任意 JS；仪表盘 iframe 沙箱属性 |
-| 竞赛深度覆盖 | 与高中基础冲突 | 用 `level: competition` 字段分层，默认走 basic；学生切换模式后再激活 |
-| 知识漂移 | LLM 在 wiki 之外乱答 | `wiki_search` 前置必要时可作为硬规则；错误处理流程（见规则）强制回写 |
+| Wiki 初始填充工作量大 | 拖慢 V2 后所有阶段 | 先用小范围（力学两章）走 ingest 全流程，再横向扩展 |
+| MinerU 配额 / 大文件超限 | V2 实跑卡壳 | 强制 `--page-ranges`，配额吃紧时切轻量 API；失败按规则回退 |
+| 图片资产丢失 / 路径错位 | wiki 引用断裂、教学不可用 | `tools/mineru.py` 自动迁移 + markdown 路径重写 + lint 检查缺图 |
+| Reviewer Persona 决策偏差 | 拆分粒度不合理、评估失准 | 输出带 confidence；< 0.6 标记待复核；真人可仪表盘覆写 |
+| 自动评估（V4）准确性 | Student Map 失真、错题本失效 | LLM 打分 + reviewer 复议 + 学生复议三重机制 |
+| HTML5 demo 安全性 | 渲染注入风险 | `render_demo` 仅填充模板参数，不执行任意 JS；iframe sandbox 属性 |
+| 竞赛深度覆盖 | 与高中基础冲突 | `level: competition` 字段分层，默认走 basic |
+| 知识漂移 | LLM 在 wiki 之外乱答 | `wiki_search` 前置必要时作为硬规则；错误处理流程强制回写 log |
 
 ---
 

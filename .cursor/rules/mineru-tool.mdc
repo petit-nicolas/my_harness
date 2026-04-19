@@ -1,0 +1,95 @@
+---
+description: MinerU 文档解析工具（物理子项目特化）—— 教材解析的 API 选择、模型偏好、图片保留与错误处理
+globs:
+  - "src/phy/tools/mineru.py"
+  - "res/phy/raw/**"
+alwaysApply: false
+---
+
+# MinerU 工具使用规范（物理子项目）
+
+## 调用方式
+
+```bash
+# 推荐：本地教材文件 + vlm 高精度模型 + 章节范围
+python src/phy/tools/mineru.py file "res/phy/raw/pep/v1/full.pdf" \
+    --output res/phy/raw/pep/v1/ \
+    --model vlm \
+    --page-ranges 45-78
+
+# URL 解析
+python src/phy/tools/mineru.py url "<远程教材URL>" \
+    --output res/phy/raw/<source>/ --model vlm
+
+# 小章节（< 10MB / < 20 页）走免 Token 轻量 API
+python src/phy/tools/mineru.py file "ch3.pdf" \
+    --output res/phy/raw/pep/v1/ --lightweight
+```
+
+## API 与模型偏好
+
+| 场景 | API | 模型 | 理由 |
+|------|-----|------|------|
+| 物理教材（默认） | 标准 v4（需 Token） | `vlm` | 公式 / 图表 / 受力分析图密集，vlm 精度最高 |
+| 单章节小测试 | 轻量 v1（免 Token） | `vlm` | 配额节省，限 10MB / 20 页 |
+| 纯文本笔记 | 标准 v4 | `pipeline` | 速度快，无复杂排版 |
+| HTML 资料 | 标准 v4 | `MinerU-HTML` | 专用 |
+
+## 单次解析约束（物理特化）
+
+- **强制使用 `--page-ranges`**：单次解析不超过 30 页，对应一个完整章节
+- **不得抛弃图片**：解析完成后，从 zip 的 `images/` 目录复制所有图片到 `res/phy/raw/<source-stem>-images/`
+- **公式校验**：vlm 输出的 LaTeX 公式必须保留 `$...$` 或 `$$...$$` 包裹，不得被纯文本替换
+- **失败回退**：标准 API 失败时按以下优先级回退
+  1. 缩小 `page-ranges` 重试
+  2. 切换 `--lightweight` 重试
+  3. 在 `log.md` 记录失败状态并停止，不要静默吞错
+
+## API Key 来源
+
+- 项目根目录 `.ENV` 中的 `MinerU_API_KEY`（与主项目共享）
+- `src/phy/tools/mineru.py` 启动时读取，找不到时直接退出并提示
+
+## 常见错误码处理
+
+| 错误码 | 含义 | 处理 |
+|--------|------|------|
+| `-60002` | 格式不支持 | 检查后缀名是否为 PDF/DOCX/PPTX/PNG/JPG/HTML |
+| `-60003` | 文件读取失败 | 检查文件是否损坏，必要时重新导出 |
+| `-60005` | 文件 > 200MB | 拆分原 PDF 或仅传必要章节 |
+| `-60006` | 页数 > 600 | 必须用 `--page-ranges` 分段 |
+| `-60008` | URL 下载超时 | 改用 file 模式本地上传 |
+| `-60018` | 日配额用尽 | 切到 `--lightweight` 或次日重试 |
+| `-30001` | 轻量接口 > 10MB | 切回标准 API |
+
+## 图片产物归位
+
+MinerU 返回的 zip 解包后约：
+
+```
+ch3.zip 解包 →
+├── full.md              # 主文本（含 ![](images/xxx.jpg) 引用）
+└── images/
+    ├── img-001.jpg
+    └── ...
+```
+
+物理子项目要求：
+
+- `full.md` 重命名为 `<source-stem>.md`，落到 `res/phy/raw/<subdir>/`
+- `images/` 整个迁移到 `res/phy/raw/<subdir>/<source-stem>-images/`
+- markdown 中的图片引用路径**同步重写**为相对新位置（`![](./<source-stem>-images/img-001.jpg)`）
+
+## 与 ingest 工作流的关系
+
+- MinerU 是 ingest 8 步流水线的**第 2 步**
+- 完成后 log.md 必须勾选 `[x] 2. MinerU 解析`，并在条目下追加：
+  ```yaml
+  mineru:
+    model: vlm
+    page_ranges: 45-78
+    output_md: res/phy/raw/pep/v1/ch3.md
+    output_images: res/phy/raw/pep/v1/ch3-images/  # 共 12 张
+    duration_s: 87
+  ```
+- 失败时勾选保持 `[ ]`，并将 log 条目 `state` 改为 `paused`，附 `error` 字段

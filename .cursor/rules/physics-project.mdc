@@ -92,8 +92,93 @@ Agent 默认作为**苏格拉底式引导者**：
 - 不得在 wiki 或 raw 中出现任何学生个人信息
 - StudentMap 节点 id 必须与 Wiki 节点 id 严格对齐（同名不同义禁止）
 
+## Ingest 工作流（V2 落地，V1 预留 log 格式）
+
+物理教材 ingest 必须走"分步状态机 + 断点恢复"，**不可一次性 LLM 调用全部完成**。每个章节独立成一个 ingest 任务，进度持久化在 `res/phy/wiki/log.md`，对话中断后可从断点继续。
+
+### 任务粒度
+
+- 单个 ingest 任务对应**一本教材的一个章节**或**一个独立知识专题**
+- 单次 MinerU 解析使用 `page_ranges`，**不超过 30 页**（约 1.5 万字 / 一个完整章节）
+- 大教材按目录拆为多个 ingest 任务串行进入
+
+### 8 步流水线
+
+1. **初始化日志**：在 `res/phy/wiki/log.md` 顶部写 `state: active` 条目，记录源文件路径、page_ranges、所有步骤初始 `[ ]` 状态
+2. **MinerU 解析**：默认 `vlm` 模型；图片输出到 `res/phy/raw/<source-stem>-images/`，**不得丢弃**
+3. **阅读资料**：完整读取 markdown + 浏览图片清单 + 公式清单
+4. **拆分粒度评审**：调用 **Reviewer Persona**（见下节）返回结构化 `user_guidance`，写入 log；不暂停等真人
+5. **创建 sources 摘要页**：在 `res/phy/wiki/sources/` 创建本次 ingest 的章节摘要（含图片索引、公式索引、覆盖知识点列表）
+6. **创建/更新概念页**：按拆分粒度，在 `res/phy/wiki/<subject>/` 创建或更新概念页，每个页面**强制引用至少 1 张原图**（如原文有相关插图）
+7. **更新 index.md**：双索引（按学科 + 按教材章节）
+8. **wiki_lint 检查**：孤儿页 / 缺图 / 公式冲突 / frontmatter 缺字段 / 链接断裂；通过后将 log 条目改 `state: done`
+
+### 步骤 4 ~ 8 之间任意位置可暂停
+
+如对话窗口超限或人为中断，下次启动时 Agent 必须先读 `log.md`，找到 `state: active|paused` 条目，从最后一个 `[x]` 步骤的下一步继续，**不得跳步**。
+
+## Reviewer Persona 机制
+
+**核心原则**：流水线中需要"专业判断"的环节，由配置化的虚拟教师角色（Reviewer Persona）发起独立子 LLM 调用完成评审，**不暂停等真人**；真人可在仪表盘事后覆写。
+
+### 目录与命名
+
+```
+src/phy/reviewers/
+├── physics_teacher_reviewer.md    # 资深物理教研组长（V2 引入）
+├── assessment_reviewer.md         # 学生评估校对（V4 引入）
+├── quiz_quality_reviewer.md       # 题目质量审核（V6 引入）
+└── report_reviewer.md             # 学习报告把关（V7 引入）
+```
+
+每个 reviewer 文件结构（YAML frontmatter + 自然语言提示词）：
+
+```yaml
+---
+id: physics_teacher_reviewer
+title: 资深物理教研组长
+applies_to: [ingest.split_review]
+input_schema:
+  source_summary: str
+  candidate_splits: list[str]
+output_schema:
+  user_guidance: str
+  splits: list[{id, title, focus, skip}]
+  confidence: float
+model: qwen-plus
+temperature: 0.2
+---
+
+# 系统提示词
+你是某重点高中物理教研组组长，从教 20 年...
+（具体人格 / 评审准则 / 输出格式 / 边界条件）
+```
+
+### 调用约定
+
+- 每次 reviewer 调用使用**独立 LLM session**（不污染主对话上下文）
+- 输出必须是 reviewer frontmatter 中 `output_schema` 定义的结构化 JSON
+- 调用结果写入 `log.md` 的 `user_guidance` 字段，**必须标注** `reviewer: <id> | confidence: <float> | reviewed_at: <iso>`
+- 当 `confidence < 0.6` 时在仪表盘标记"待人工复核"，但**不阻塞**流水线
+- 真人在仪表盘修改 reviewer 决策后，记录到 log 的 `human_override` 字段
+
+### 真人介入边界
+
+| 场景 | 默认行为 | 真人介入方式 |
+|------|----------|--------------|
+| ingest 步骤 4 拆分粒度 | reviewer 自动通过 | 仪表盘看 log，可重跑或覆写 splits |
+| 与 wiki 冲突 | reviewer 给出修正方案 | 真人审阅修正方案后批量应用 |
+| 学生评估异常（V4） | 标记 low_confidence | 教师仪表盘审批 |
+| 题目质量低（V6） | 自动重试 reviewer 一次 | 教师终审拒绝 / 通过 |
+
+### 与 Harness Hooks 协同
+
+reviewer 调用走主项目 `src.hooks` 通道（pre_tool_use 可拦截、post_tool_use 可记审计），保持安全/审计/统计三层一致。
+
 ## 与 Harness 主线的边界
 
 - **不修改** `src/agent.py` / `src/prompt.py` 等主线代码，除非通过 `--mode physics` 等注入点扩展
 - 物理专属工具只挂载在 `src/phy/`，通过工具注册机制接入
 - 物理相关提示词走 `src/phy/physics_prompt.md`，由 prompt 层根据模式切换
+- Reviewer Persona 调用复用主项目 `src.client._client`，但每次调用独立 session，不污染主对话历史
+- MinerU 工具脚本放在 `src/phy/tools/mineru.py`（与 `src/phy/` 平行的子模块），不挂在项目根 `tools/`

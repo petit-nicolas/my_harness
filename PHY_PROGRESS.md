@@ -3,9 +3,9 @@
 ## 当前状态
 
 - **分支**：`vertical-industry`
-- **当前阶段**：Phase 0 — 治理基础设施
-- **当前步骤**：Phase 0 完成，等待 V1 开启
-- **最后更新**：2026-04-15
+- **当前阶段**：V1 — Wiki 基础设施 + MinerU 解析底座（规划已优化，等待启动 V1.1）
+- **当前步骤**：phy-v0 已封版；V1/V2 规划于 2026-04-19 经 MinerU 集成方案优化后定稿
+- **最后更新**：2026-04-19
 
 ---
 
@@ -14,8 +14,8 @@
 | 阶段 | 目标 | 封版 tag |
 |------|------|----------|
 | **Phase 0** | 治理基础设施（规则 / 计划 / 日志 / 骨架） | `phy-v0` |
-| **V1** | Wiki 基础设施（schema + 四工具 + 浏览页） | `phy-v1` |
-| **V2** | Ingest 流水线 + Lint + 教材骨架 | `phy-v2` |
+| **V1** | Wiki 基础设施 + MinerU 解析底座（schema + 四工具 + MinerU + 浏览页） | `phy-v1` |
+| **V2** | Ingest 8 步流水线 + Reviewer Persona + Lint + 端到端实跑首章 | `phy-v2` |
 | **V3** | 教师 Persona + 教学策略库 | `phy-v3` |
 | **V4** | Student Map + 自动评估 hook | `phy-v4` |
 | **V5** | HTML5 交互演示 + Plotly 场/函数 | `phy-v5` |
@@ -41,25 +41,29 @@
 
 ---
 
-### V1：Wiki 基础设施
+### V1：Wiki 基础设施 + MinerU 解析底座
 
-- [ ] V1.1 编写 `res/phy/schemas/PHYSICS_SCHEMA.md`（frontmatter 字段、双向链接语法、log 格式）
-- [ ] V1.2 建立 `res/phy/wiki/index.md` 与 `log.md` 骨架
-- [ ] V1.3 实现 `src/phy/wiki.py` — `wiki_read` / `wiki_write` / `wiki_search` / `wiki_index` 四工具
-- [ ] V1.4 工具注册到物理模式，写冒烟测试脚本
-- [ ] V1.5 仪表盘 `dashboard/pages/phy_1_wiki.py`（页面浏览 + 反向索引视图）
+- [ ] V1.1 编写 `res/phy/schemas/PHYSICS_SCHEMA.md`（frontmatter 必填 `images` / `formulas` 字段 + 双向链接 + 8 步 ingest 的 log 格式约定）
+- [ ] V1.2 建立 `res/phy/wiki/{index.md, log.md, overview.md}` 骨架（含双索引模板与状态机条目示例）
+- [ ] V1.3 移植并物理特化 `src/phy/tools/mineru.py`（默认 vlm + 强制 `--page-ranges` + 自动迁移图片到 `<source-stem>-images/` + 自动重写 markdown 图片路径），更新 `requirements.txt` 加入 `requests`
+- [ ] V1.4 新增 `.cursor/rules/mineru-tool.mdc` 已完成（V0 阶段顺手做掉，V1 阶段验证此规则被遵循）；新增 `.ENV.example` 模板
+- [ ] V1.5 实现 `src/phy/wiki.py` — `wiki_read` / `wiki_write` / `wiki_search` / `wiki_index` 四工具，注册到工具表（仅在 physics mode 加载）
+- [ ] V1.6 冒烟测试脚本 `tests/phy/test_v1_smoke.py`：mineru 解析一个小 PDF + 创建一个测试 wiki 页 + 索引自动更新 + 图片正确落盘
+- [ ] V1.7 仪表盘 `dashboard/pages/phy_1_wiki.py`（页面浏览 + 反向链接 + log 状态机三栏视图：active/paused/done）
 
 **封版标记**：未开始（目标 tag: phy-v1）
 
 ---
 
-### V2：Ingest 流水线 + Lint
+### V2：Ingest 8 步流水线 + Reviewer Persona + Lint + 端到端实跑
 
-- [ ] V2.1 依赖安装 `pypdf` / `markdownify`，建立 raw/ 预置人教版目录骨架
-- [ ] V2.2 实现 `src/phy/ingest.py` 的 `ingest_source` 工具（PDF/MD/HTML → 抽概念 → 多页更新 + 追加 log）
-- [ ] V2.3 实现 `wiki_lint`（孤儿页 / 公式冲突 / 缺失引用 / frontmatter 校验）
-- [ ] V2.4 端到端测试：吸收一个章节并通过 lint
-- [ ] V2.5 仪表盘扩展 ingest 视图（源 → 命中页面 → log 追加）
+- [ ] V2.1 编写 `src/phy/reviewers/physics_teacher_reviewer.md`（资深教研组长人格 + `ingest.split_review` 输入输出契约）
+- [ ] V2.2 实现 `src/phy/reviewers/__init__.py` 通用 `call_reviewer(persona_id, payload)`：独立 LLM session、低 temperature、JSON 解析、写 audit log、confidence 阈值标记
+- [ ] V2.3 实现 `src/phy/ingest.py` 的 8 步状态机（`init_log` / `mineru_parse` / `read_content` / `split_review` / `create_source_summary` / `create_concept_pages` / `update_index` / `lint_check`），每步独立可恢复
+- [ ] V2.4 启动协议：`ingest_chapter` 工具调用前先扫 `wiki/log.md`，发现 `state: active|paused` 优先恢复（不允许并发）
+- [ ] V2.5 实现 `wiki_lint`（孤儿页 / 缺图引用 / 公式冲突 / frontmatter 缺字段 / wikilink 断裂），可作为独立工具或 ingest 第 8 步
+- [ ] V2.6 用户提供首章教材 → 由 Agent 自行选定 ingest 范围 → 端到端实跑 → 中途模拟一次中断 → 重启从 log 断点续跑 → 最终 lint 全绿
+- [ ] V2.7 仪表盘扩展 `phy_1_wiki.py` 的 ingest 视图（源 → 8 步进度条 → reviewer 决策展示 + 真人覆写按钮 → 命中页面）
 
 **封版标记**：未开始（目标 tag: phy-v2）
 
@@ -129,6 +133,7 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-19 | V1/V2 规划优化 | 完成 | 引入 MinerU + Reviewer Persona + 8 步 ingest 状态机 + sources/ 摘要层 + 图片资产保留；新增 `mineru-tool.mdc`；扩展 `physics-project.mdc` |
 | 2026-04-15 | P0.1-P0.6 Phase 0 全部完成 | 完成 | 建立 `physics-project.mdc` + `PHY_PLAN.md` + `PHY_PROGRESS.md` + 目录骨架，打 tag phy-v0 |
 
 ---
