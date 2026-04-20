@@ -138,7 +138,7 @@ harness/ (vertical-industry 分支)
 │   │   ├── log.md                 # 8 步 ingest 状态机日志（断点恢复）
 │   │   ├── overview.md            # 知识库覆盖度与待补区域概览
 │   │   ├── sources/               # 每次 ingest 的章节摘要页（桥接 raw 与 wiki）
-│   │   │   └── pep-v1-ch3.md      # 例：人教版必修一第三章摘要
+│   │   │   └── pep-required-1-ch3.md  # 例：人教必修一第三章摘要
 │   │   ├── feedback/              # Runner→Builder 反馈队列（V3 引入）
 │   │   │   ├── inbox/             # 待处理（runner append-only）
 │   │   │   ├── processed/         # 已接受并修订
@@ -149,12 +149,17 @@ harness/ (vertical-industry 分支)
 │   │   ├── optics/*.md
 │   │   └── modern/*.md
 │   ├── raw/                       # 原始资料（只读），溯源锚点
-│   │   └── pep/v1/                # 例：人教版必修一
-│   │       ├── full.pdf           # 原 PDF（不可改）
-│   │       ├── ch3.md             # MinerU 转出的 markdown
-│   │       └── ch3-images/        # MinerU 提取的图片（电路/受力/波形等）
-│   │           ├── img-001.png
-│   │           └── ...
+│   │   ├── pep/                   # 人教·新课标 2019 修订版（V1 末已就位 6 册 ✅）
+│   │   │   ├── required-1/        # 必修第一册（运动·力·牛顿运动定律）
+│   │   │   │   ├── full.pdf       # 原 PDF（不可改）
+│   │   │   │   ├── ch3.md         # MinerU 转出的 markdown
+│   │   │   │   └── ch3-images/    # MinerU 提取的图片
+│   │   │   ├── required-2/        # 必修第二册（曲线运动·万有引力·机械能）
+│   │   │   ├── required-3/        # 必修第三册（静电场·电路·磁场）
+│   │   │   ├── elective-1/        # 选择性必修第一册（动量·机械振动·光）
+│   │   │   ├── elective-2/        # 选择性必修第二册（电磁感应·交流电）
+│   │   │   └── elective-3/        # 选择性必修第三册（热学·原子物理）
+│   │   └── olympics-collections/  # 竞赛资料（接口预留，V6 主体完成后启动）
 │   ├── schemas/
 │   │   └── PHYSICS_SCHEMA.md      # Wiki 写作约定（V1 建立，含图片/公式字段）
 │   ├── demo_templates/            # 6 个 HTML5 核心模板（V5 填充）
@@ -233,7 +238,8 @@ harness/ (vertical-industry 分支)
 - 产出（Lint）：
   - `src/phy/wiki.py` 增加 `wiki_lint`：孤儿页 / 缺图 / 公式冲突 / frontmatter 缺字段 / 链接断裂
 - 产出（教材骨架）：
-  - `res/phy/raw/pep/v1/`、`res/phy/raw/pep/v2/`（按用户提供的实际教材建立）
+  - `res/phy/raw/pep/{required-1,required-2,required-3,elective-1,elective-2,elective-3}/full.pdf`（V1 末已就位）
+  - V2 首批 ingest 优先目标：**必修第一册第 3 章「相互作用·力」**（约 30 页内，软上限范围内，覆盖力学骨架前置）
 - **端到端验收**（必须实跑，不靠模拟）：
   - 选择一章用真实 MinerU + Reviewer 跑通 8 步全流程
   - 产出至少 1 个 sources 摘要 + 5 个学科概念页 + 图片正确引用
@@ -311,6 +317,44 @@ harness/ (vertical-industry 分支)
 
 ---
 
+## 竞赛进阶接入路线（决赛级 · 主体完成后启动）
+
+> **状态**：接口预留，**V1-V7 不实施**。等高中主体（人教 6 册）完成 ingest + lint + 教学闭环后再启动。
+> **目标深度**：CPhO **决赛**级别（含国家集训队选拔难度）；向上对接 IPhO 但不强求覆盖。
+
+### 启动条件（必须全部满足）
+
+- [ ] 6 册新教材 ingest 全部完成
+- [ ] `wiki_lint` 在主体范围全绿
+- [ ] V6 quiz 系统在 basic level 上验证通过
+- [ ] 至少有 1 个真实学生使用 1 周以上的反馈样本
+
+### 资料接入清单（详见 `res/phy/raw/olympics-collections/README.md`）
+
+| 优先级 | 资料 | 切入点 |
+|--------|------|--------|
+| 1 | 程稼夫《高中物理竞赛培优教程》力学篇 + 电磁学篇 | 与必修一/必修三衔接，作为 competition 入门骨干 |
+| 2 | 范小辉《物理奥赛新讲》 | 当代主流，覆盖完整，做横向补充 |
+| 3 | CPhO 复赛/决赛历年真题（近 10 年） | 题型训练 + 难点验证 |
+
+### 接入工作量预估
+
+| 子阶段 | 内容 | 复用 V1-V7 哪些能力 |
+|--------|------|---------------------|
+| C1 | olympics-collections 首批资料 ingest（程稼夫力学篇 1-3 章） | V1 mineru.py + V2 ingest 8 步 + reviewer |
+| C2 | competition level 概念页 / 题型页 / 错题归档 | 沿用 V2 wiki schema，level 字段从 basic 升 competition |
+| C3 | 竞赛专属 quiz 难度梯度 | V6 quiz_generate + IRT，新增 competition 难度档 |
+| C4 | 学生 wikimap "竞赛分支" 视图 | V4 student.py + V7 仪表盘扩展 |
+| C5 | （可选）IPhO 真题专题 | 仅在用户明确要求时启动 |
+
+### 与主体 wiki 的隔离设计
+
+- **不混入新章节**：竞赛内容走独立学科子目录或 level 字段标记，不破坏高中主干的 wikilink 拓扑
+- **新增视图**：`index.md` 在「按级别」分支下挂 `competition` 节点，与 `basic` / `advanced` 平行
+- **降级路径**：竞赛页面必须能反向链回到对应高中主干页（`prerequisites` 字段），便于学生从难回简
+
+---
+
 ## Reviewer Persona 演进路线（横切 V2-V7）
 
 | Reviewer | 引入版本 | executor | 评审场景 | 输出契约要点 |
@@ -363,7 +407,7 @@ flowchart LR
 | Reviewer Persona 决策偏差 | 拆分粒度不合理、评估失准 | 输出带 confidence；< 0.6 标记待复核；真人可仪表盘覆写 |
 | 自动评估（V4）准确性 | Student Map 失真、错题本失效 | LLM 打分 + reviewer 复议 + 学生复议三重机制 |
 | HTML5 demo 安全性 | 渲染注入风险 | `render_demo` 仅填充模板参数，不执行任意 JS；iframe sandbox 属性 |
-| 竞赛深度覆盖 | 与高中基础冲突 | `level: competition` 字段分层，默认走 basic |
+| 竞赛深度覆盖 | 与高中基础冲突 | `level: competition` 字段分层，默认走 basic；竞赛资料严格隔离在 `raw/olympics-collections/`，主体闭环后再接入（详见上方"竞赛进阶接入路线"） |
 | 知识漂移 | LLM 在 wiki 之外乱答 | `wiki_search` 前置必要时作为硬规则；错误处理流程强制回写 log |
 
 ---

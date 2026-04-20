@@ -18,6 +18,13 @@ env/
 res/phy/students/
 res/phy/renders/
 
+# 物理子项目原始教材（版权 + 体积原因不入库；用户按 res/phy/raw/README.md 自行放入）
+res/phy/raw/pep/*/full.pdf
+res/phy/raw/pep/*/*.md
+res/phy/raw/pep/*/*-images/
+res/phy/raw/olympics-collections/**/*.pdf
+res/phy/raw/olympics-collections/**/*-images/
+
 # Streamlit 缓存
 .streamlit/
 

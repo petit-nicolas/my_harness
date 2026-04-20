@@ -7,3 +7,7 @@ rich>=13.7.0
 
 # 教学仪表盘
 streamlit>=1.35.0
+
+# 物理子项目（Builder 工具）
+# - requests: MinerU API 客户端（src/phy/tools/mineru.py）
+requests>=2.31.0

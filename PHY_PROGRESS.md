@@ -3,9 +3,9 @@
 ## 当前状态
 
 - **分支**：`vertical-industry`
-- **当前阶段**：V1 — Wiki 基础设施 + MinerU 解析底座（规划已优化，等待启动 V1.1）
-- **当前步骤**：phy-v0 已封版；2026-04-19 完成 V1/V2 规划优化（MinerU + Reviewer + 8 步 ingest）；2026-04-19 完成 Builder/Runner 二分 + Wiki Feedback Loop 设计
-- **最后更新**：2026-04-19
+- **当前阶段**：V1 — Wiki 基础设施 + MinerU 解析底座（**全部子任务完成 ✅，待封版 phy-v1**）
+- **当前步骤**：V1.7 完成 ✅；V1 可封版，打 tag `phy-v1` 后进入 V2
+- **最后更新**：2026-04-20
 
 ---
 
@@ -43,15 +43,15 @@
 
 ### V1：Wiki 基础设施 + MinerU 解析底座
 
-- [ ] V1.1 编写 `res/phy/schemas/PHYSICS_SCHEMA.md`（frontmatter 必填 `images` / `formulas` 字段 + 双向链接 + 8 步 ingest 的 log 格式约定）
-- [ ] V1.2 建立 `res/phy/wiki/{index.md, log.md, overview.md}` 骨架（含双索引模板与状态机条目示例）
-- [ ] V1.3 移植并物理特化 `src/phy/tools/mineru.py`（默认 vlm + 强制 `--page-ranges` + 自动迁移图片到 `<source-stem>-images/` + 自动重写 markdown 图片路径），更新 `requirements.txt` 加入 `requests`
-- [ ] V1.4 新增 `.cursor/rules/mineru-tool.mdc` 已完成（V0 阶段顺手做掉，V1 阶段验证此规则被遵循）；新增 `.ENV.example` 模板
-- [ ] V1.5 实现 `src/phy/wiki.py` — `wiki_read` / `wiki_write` / `wiki_search` / `wiki_index` 四工具，**注册时按 mode 分级**（read/search 为 builder+runner，write/index 仅 builder）
-- [ ] V1.6 冒烟测试脚本 `tests/phy/test_v1_smoke.py`：mineru 解析一个小 PDF + 创建一个测试 wiki 页 + 索引自动更新 + 图片正确落盘
-- [ ] V1.7 仪表盘 `dashboard/pages/phy_1_wiki.py`（页面浏览 + 反向链接 + log 状态机三栏视图：active/paused/done）
+- [x] V1.1 编写 `res/phy/schemas/PHYSICS_SCHEMA.md`（frontmatter 必填 `images` / `formulas` 字段 + 双向链接 + 8 步 ingest 的 log 格式约定）
+- [x] V1.2 建立 `res/phy/wiki/{index.md, log.md, overview.md}` 骨架（含双索引模板与三类 log 条目示例）
+- [x] V1.3 移植并物理特化 `src/phy/tools/mineru.py`（默认 vlm + 强制 `--page-ranges` + 自动迁移图片到 `<source-stem>-images/` + 自动重写 markdown 图片路径），更新 `requirements.txt` 加入 `requests`
+- [x] V1.4 验证 `mineru-tool.mdc` 被实现严格遵守（16 条规则全 ✅，含新增 30 页软上限警告）；完善 `.ENV.example`（REPLACE_ME 占位符 + 双侧自检命令）
+- [x] V1.5 实现 `src/phy/wiki.py` — `wiki_read` / `wiki_write` / `wiki_search` / `wiki_index` 四工具，**注册时按 mode 分级**（read/search 为 builder+runner，write/index 仅 builder）
+- [x] V1.6 冒烟测试脚本 `tests/phy/test_v1_smoke.py`：mineru 纯函数 + wiki 端到端流水线（write→read→search→index→rebuild→二次幂等）+ mode 隔离（**runner 严格只读**）+ 断裂链接识别 + 图片路径双前缀回归
+- [x] V1.7 仪表盘 `dashboard/pages/phy_1_wiki.py`（4 Tab：总览 / 页面浏览 / log 状态机三栏 / Feedback Inbox；**严格只读**）
 
-**封版标记**：未开始（目标 tag: phy-v1）
+**封版标记**：待封版（目标 tag: phy-v1，V1.1-V1.7 全部完成）
 
 ---
 
@@ -138,6 +138,14 @@
 
 | 日期 | 子任务 | 状态 | 备注 |
 |------|--------|------|------|
+| 2026-04-20 | V1.7 仪表盘 phy_1_wiki.py | 完成 | 实现 `dashboard/pages/phy_1_wiki.py`（约 410 行，零 lint）。**4 个 Tab 布局**：(1) **总览** — 4 个 metric 卡片（概念页/摘要页/反向链接/断裂链接，断裂链接以 `-N 待修` 红色 delta 呈现）+ 学科/level 双列分布 + 断裂链接 expander；(2) **页面浏览** — 左侧 selectbox 学科筛选 + radio 选页，右侧 4 列 frontmatter 摘要卡（title/level/subject/updated）+ 完整 frontmatter JSON expander + 正文 bordered container + **反向链接区**（自带 60 字符上下文片段）；(3) **log 状态机三栏** — 🟢 active / 🟡 paused / ⚪ done 三列 + state 推断（feedback/schema-init 默认 done）+ 占位示例 toggle 可隐藏 + feedback/lint/schema-init 折叠到底部；(4) **Feedback Inbox** — 扫 `wiki/feedback/inbox/*.md` 列出待处理 ticket（过滤 README）。**严格只读定位**：不触发 wiki_write / wiki_index(rebuild=True)，底部明确提示重建命令。**验证链路**：streamlit server 起来 HTTP 200 / healthz OK；bare-mode `python dashboard/pages/phy_1_wiki.py` 全程无 traceback（仅 streamlit 正常的 ScriptRunContext 警告）；V1.6 冒烟测试 27/27 仍 PASS 无回归 |
+| 2026-04-20 | V1.6 端到端冒烟测试 | 完成 | 实现 `tests/phy/test_v1_smoke.py`（约 320 行，零 lint，零外部依赖，stdlib unittest）。**27/27 PASS · 0.013s**。覆盖矩阵：(A) Mineru 纯函数 12 用例 — `_estimate_page_count` 4 种 case + `PAGE_RANGE_SOFT_LIMIT` 常量锁定 + `_rewrite_image_paths` markdown/HTML 双形式 + V1.3 双前缀回归 + 非图行保持 + CLI parser 三子命令；(B) Wiki 端到端 8 用例 — sources 摘要页创建、概念页 auto-fix（subject 推断 / created 注入 / updated 刷新）、read 回环含 frontmatter、search 全 5 scope（all/title/body/wikilink/subject）+ 无匹配信息、index dry-report 不写盘、rebuild 注入 AUTOGEN 段、**二次 rebuild 幂等替换语义**、断裂链接识别；(C) mode 隔离 6 用例 — runner 工具集严格 `{wiki_read, wiki_search}` / executor 同步 / builder 完整 4 个 / 未知 mode `ValueError` / OpenAI tools schema JSON 可序列化校验。**关键设计**：通过 monkeypatch `wiki.WIKI_ROOT` 到 tempdir 隔离真实 wiki；不打 MinerU 真 API（V1.4 已专项验证）。两种调用方式均通：`python tests/phy/test_v1_smoke.py` 与 `python -m unittest tests.phy.test_v1_smoke` |
+| 2026-04-20 | 教材体系敲定 + 6 册 PDF 落位 | 完成 | 锁定**人教·新课标 2019 修订版（C 套）6 册**为高中主体导入对象（必修 1/2/3 + 选择性必修 1/2/3），全部 PDF（共 ~82MB）就位到 `res/phy/raw/pep/{required-1..3,elective-1..3}/full.pdf`；建立 `res/phy/raw/olympics-collections/` 接口预留目录与 README，**目标深度锁定 CPhO 决赛级，主体闭环后启动**（详见 PHY_PLAN.md 「竞赛进阶接入路线」段落）。同步更新 `res/phy/raw/README.md`（落位状态表）、`PHY_PLAN.md`（目录树 + V2 教材骨架 + 新增 C1-C5 竞赛子阶段 + 风险表）、`overview.md`（学科覆盖度按教材重映射 + 长期任务列出 C1-C4） |
+| 2026-04-19 | V1.5 src/phy/wiki.py 四工具 | 完成 | 实现 `src/phy/wiki.py`（约 530 行，零 lint，零外部依赖）：(1) `wiki_read` 读 page_id 完整 markdown，含 frontmatter 解析、不存在时给"建议清单"、非法 id 拒大写；(2) `wiki_search` 五种 scope（all/title/body/wikilink/subject），wikilink 模式支持反向链接搜索；(3) `wiki_write` 最小 schema 校验（必填 title+level+id 对齐）+ 自动注入 created/updated + auto-fix 推断 subject + 不一致告警；(4) `wiki_index` 默认仅出统计报告，rebuild=true 才把 AUTOGEN 段写入 index.md 与 overview.md，**二次重建是替换而非追加**。手写极简 frontmatter 解析器避免引入 PyYAML。**mode 分级**：`get_tools(mode)` / `get_executors(mode)` 在注册时硬过滤，runner 模式 wiki_write/wiki_index 根本不出现在工具表。**自验 15/15 PASS** 含边界（断裂链接检测、subject 路径不一致 WARN、二次 rebuild 幂等）|
+| 2026-04-19 | V1.4 mineru-tool.mdc 合规验证 + .ENV.example | 完成 | **合规矩阵 16/16 通过**：mode 标识 / file&url 双入口 / vlm 默认 / 强制 page-ranges / lightweight 兜底 / 图片整迁 / 路径重写 / 公式默认开 / 错误码全表 / Key 来源 .ENV / 找不到时退出 / full.md 重命名 / 8 步 ingest 第 2 步契约。**新增 30 页软上限警告**（`_estimate_page_count` 8/8 单测 + CLI 真触发）。**完善 `.ENV.example`**：`REPLACE_ME_WITH_REAL_*` 占位符 + 双向自检命令（真 .ENV 通过 / 占位符拒绝） + 注释含申请链接、配额、运行模式。**.gitignore** 已锁死 `.ENV / .env / *.env`（git check-ignore 验证） |
+| 2026-04-19 | V1.3 移植 mineru.py | 完成 | 实现 `src/phy/tools/mineru.py`（558 行）：双 API（标准 v4 + 轻量 v1）、双入口（file 本地/url 远程）、强制 `--page-ranges` 守卫、`--allow-full` 紧急兜底；图片自动落到 `<source-stem>-images/` 并重写 md 内 `![](images/x)` 与 `<img src="images/x">` 两种引用；OSS 直传不带 Content-Type 规避 403；20+ 错误码中文友好提示；stdout 输出单行 JSON 摘要供 ingest 脚本消费。补充 `requirements.txt` 加 `requests>=2.31.0`，`src/phy/tools/__init__.py`。端到端真实链路验证（鉴权 / batch 申请 / OSS PUT / 状态轮询 / 错误码透传全部跑通） + 5/5 图片路径重写单测全过 + 4 项守卫验证（缺参/缺文件/非法 model/紧急兜底）|
+| 2026-04-19 | V1.2 建立 wiki 三件套骨架 | 完成 | 创建 `res/phy/wiki/{index.md, log.md, overview.md}`：index 含双索引（按学科 / 按教材）+ 反向链接区 + 待补区域占位；log 含 schema-init 真实条目 + 三类格式示例（ingest 8 步状态机 / feedback 处理 / lint 报告）；overview 含统计表 + 学科覆盖度 + level 分布 + 短中长期建设方向 + 缺口区。三文件 frontmatter 严格遵守 schema §1.4（id/title/level: meta/created/updated），dogfood 自检过 §8 清单 |
+| 2026-04-19 | V1.1 编写 PHYSICS_SCHEMA.md | 完成 | 落地 wiki 操作手册：通用/概念页/资料摘要页 frontmatter 字段、images & formulas 资产格式、wikilink 三种语法、log.md 三类条目（8 步 ingest / feedback / lint）完整模板、命名约定（kebab-case / 学科前缀 / 资料简称表）、3 套页面模板（concept basic / source / index）、9 项 lint 自检清单 |
 | 2026-04-19 | Builder/Runner 二分 + Feedback Loop 设计 | 完成 | 明确 Cursor 做 Build-time wiki 维护、Harness 做 Runtime 教学；工具按 mode 分级；新增 Wiki Feedback Loop（runner append-only inbox/，cursor 审核处理）；Reviewer 表加 executor 字段（V2 V3 走 cursor，V4 V6 V7 走 harness）；V3 加 feedback 接入 4 个子任务，V6 加自动信号触发 |
 | 2026-04-19 | V1/V2 规划优化 | 完成 | 引入 MinerU + Reviewer Persona + 8 步 ingest 状态机 + sources/ 摘要层 + 图片资产保留；新增 `mineru-tool.mdc`；扩展 `physics-project.mdc` |
 | 2026-04-15 | P0.1-P0.6 Phase 0 全部完成 | 完成 | 建立 `physics-project.mdc` + `PHY_PLAN.md` + `PHY_PROGRESS.md` + 目录骨架，打 tag phy-v0 |
